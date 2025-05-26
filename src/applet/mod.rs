@@ -181,7 +181,9 @@ impl Context {
         &self,
         icon: widget::icon::Handle,
     ) -> crate::widget::Button<'a, Message> {
-        let suggested = self.suggested_size(icon.symbolic);
+        // PATCH: force full sie for symbolic icons
+        // let suggested = self.suggested_size(icon.symbolic);
+        let suggested = self.suggested_size(false);
         let applet_padding = self.suggested_padding(icon.symbolic);
 
         let symbolic = icon.symbolic;
