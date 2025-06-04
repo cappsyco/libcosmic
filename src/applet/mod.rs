@@ -428,12 +428,24 @@ impl Context {
     pub fn text<'a>(&self, msg: impl Into<Cow<'a, str>>) -> crate::widget::Text<'a, crate::Theme> {
         let msg = msg.into();
         let t = match self.size {
-            Size::PanelSize(PanelSize::XL) => crate::widget::text::title2,
-            Size::PanelSize(PanelSize::L) => crate::widget::text::title3,
-            Size::PanelSize(PanelSize::M) => crate::widget::text::title4,
-            Size::PanelSize(PanelSize::S) => crate::widget::text::body,
-            Size::PanelSize(PanelSize::XS) => crate::widget::text::body,
             Size::Hardcoded(_) => crate::widget::text,
+            Size::PanelSize(ref s) => {
+                let size = s.get_applet_icon_size_with_padding(false);
+
+                let size_threshold_small = PanelSize::S.get_applet_icon_size_with_padding(false);
+                let size_threshold_medium = PanelSize::M.get_applet_icon_size_with_padding(false);
+                let size_threshold_large = PanelSize::L.get_applet_icon_size_with_padding(false);
+
+                if size <= size_threshold_small {
+                    crate::widget::text::body
+                } else if size <= size_threshold_medium {
+                    crate::widget::text::title4
+                } else if size <= size_threshold_large {
+                    crate::widget::text::title3
+                } else {
+                    crate::widget::text::title2
+                }
+            }
         };
         t(msg).font(crate::font::default())
     }
@@ -450,7 +462,7 @@ pub fn run<App: Application>(flags: App::Flags) -> iced::Result {
     let mut settings = helper.window_settings();
     settings.resizable = None;
 
-    #[cfg(target_env = "gnu")]
+    #[cfg(all(target_env = "gnu", not(target_os = "windows")))]
     if let Some(threshold) = settings.default_mmap_threshold {
         crate::malloc::limit_mmap_threshold(threshold);
     }
