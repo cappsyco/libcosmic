@@ -2,7 +2,7 @@
 
 use notify::{
     event::{EventKind, ModifyKind},
-    Watcher,
+    RecommendedWatcher, Watcher,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
@@ -10,6 +10,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     sync::Mutex,
+    time::Duration,
 };
 
 #[cfg(feature = "subscription")]
@@ -244,7 +245,7 @@ impl Config {
     // This may end up being an mpsc channel instead of a function
     // See EventHandler in the notify crate: https://docs.rs/notify/latest/notify/trait.EventHandler.html
     // Having a callback allows for any application abstraction to be used
-    pub fn watch<F>(&self, f: F) -> Result<notify::RecommendedWatcher, Error>
+    pub fn watch<F>(&self, f: F) -> Result<RecommendedWatcher, Error>
     // Argument is an array of all keys that changed in that specific transaction
     //TODO: simplify F requirements
     where
@@ -255,12 +256,13 @@ impl Config {
             return Err(Error::NoConfigDirectory);
         };
         let user_path_clone = user_path.clone();
-        let mut watcher =
-            notify::recommended_watcher(move |event_res: Result<notify::Event, notify::Error>| {
-                match &event_res {
+        let mut watcher = notify::recommended_watcher(
+            move |event_res: Result<notify::Event, notify::Error>| {
+                match event_res {
                     Ok(event) => {
                         match &event.kind {
-                            EventKind::Access(_) | EventKind::Modify(ModifyKind::Metadata(_)) => {
+                            EventKind::Access(_)
+                            | EventKind::Modify(ModifyKind::Metadata(_)) => {
                                 // Data not mutated
                                 return;
                             }
@@ -292,8 +294,9 @@ impl Config {
                         //TODO: handle errors
                     }
                 }
-            })?;
-        watcher.watch(user_path, notify::RecursiveMode::NonRecursive)?;
+            },
+        )?;
+        watcher.watch(user_path, notify::RecursiveMode::Recursive)?;
         Ok(watcher)
     }
 

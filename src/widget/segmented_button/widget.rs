@@ -17,7 +17,7 @@ use iced::clipboard::mime::AllowedMimeTypes;
 use iced::touch::Finger;
 use iced::{
     Alignment, Background, Color, Event, Length, Padding, Rectangle, Size, Task, Vector, alignment,
-    event, keyboard, mouse, touch,
+    event, keyboard, mouse, touch, window,
 };
 use iced_core::mouse::ScrollDelta;
 use iced_core::text::{LineHeight, Renderer as TextRenderer, Shaping, Wrapping};
@@ -127,7 +127,7 @@ where
     pub(super) style: Style,
     /// The context menu to display when a context is activated
     #[setters(skip)]
-    pub(super) context_menu: Option<Vec<menu::Tree<'a, Message, crate::Renderer>>>,
+    pub(super) context_menu: Option<Vec<menu::Tree<Message>>>,
     /// Emits the ID of the item that was activated.
     #[setters(skip)]
     pub(super) on_activate: Option<Box<dyn Fn(Entity) -> Message + 'static>>,
@@ -198,13 +198,13 @@ where
         }
     }
 
-    pub fn context_menu(mut self, context_menu: Option<Vec<menu::Tree<'a, Message>>>) -> Self
+    pub fn context_menu(mut self, context_menu: Option<Vec<menu::Tree<Message>>>) -> Self
     where
-        Message: 'static,
+        Message: Clone + 'static,
     {
         self.context_menu = context_menu.map(|menus| {
             vec![menu::Tree::with_children(
-                crate::widget::row::<'static, Message>(),
+                crate::Element::from(crate::widget::row::<'static, Message>()),
                 menus,
             )]
         });
@@ -577,6 +577,7 @@ where
     fn state(&self) -> tree::State {
         #[allow(clippy::default_trait_access)]
         tree::State::new(LocalState {
+            menu_state: Default::default(),
             paragraphs: SecondaryMap::new(),
             text_hashes: SecondaryMap::new(),
             buttons_visible: Default::default(),
@@ -646,16 +647,9 @@ where
 
         // Diff the context menu
         if let Some(context_menu) = &mut self.context_menu {
-            if tree.children.is_empty() {
-                let mut child_tree = Tree::empty();
-                child_tree.state = tree::State::new(MenuBarState::default());
-                tree.children.push(child_tree);
-            } else {
-                tree.children.truncate(1);
-            }
-            menu_roots_diff(context_menu, &mut tree.children[0]);
-        } else {
-            tree.children.clear();
+            state.menu_state.inner.with_data_mut(|inner| {
+                menu_roots_diff(context_menu, &mut inner.tree);
+            });
         }
     }
 
@@ -953,10 +947,10 @@ where
                                     state.context_cursor =
                                         cursor_position.position().unwrap_or_default();
 
-                                    let menu_state =
-                                        tree.children[0].state.downcast_mut::<MenuBarState>();
-                                    menu_state.open = true;
-                                    menu_state.view_cursor = cursor_position;
+                                    state.menu_state.inner.with_data_mut(|data| {
+                                        data.open = true;
+                                        data.view_cursor = cursor_position;
+                                    });
 
                                     shell.publish(on_context(key));
                                     return event::Status::Captured;
@@ -1032,6 +1026,16 @@ where
                         }
                     }
                 }
+            }
+        } else if state.focused {
+            // Unfocus on clicks outside of the boundaries of the segmented button.
+            if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+            | Event::Touch(touch::Event::FingerPressed { .. }) = event
+            {
+                state.focused = true;
+                state.focused_item = Item::None;
+                state.pressed_item = None;
+                return event::Status::Ignored;
             }
         }
 
@@ -1346,7 +1350,11 @@ where
             let center_y = bounds.center_y();
 
             let menu_open = !tree.children.is_empty()
-                && tree.children[0].state.downcast_ref::<MenuBarState>().open;
+                && tree.children[0]
+                    .state
+                    .downcast_ref::<MenuBarState>()
+                    .inner
+                    .with_data(|data| data.open);
 
             let key_is_active = self.model.is_active(key);
             let key_is_hovered = self.button_is_hovered(state, key);
@@ -1556,6 +1564,7 @@ where
         translation: Vector,
     ) -> Option<iced_core::overlay::Element<'b, Message, crate::Theme, Renderer>> {
         let state = tree.state.downcast_ref::<LocalState>();
+        let menu_state = state.menu_state.clone();
 
         let Some(entity) = state.show_context else {
             return None;
@@ -1575,17 +1584,17 @@ where
             return None;
         };
 
-        if !tree.children[0].state.downcast_ref::<MenuBarState>().open {
+        if !menu_state.inner.with_data(|data| data.open) {
+            // If the menu is not open, we don't need to show it.
             return None;
         }
-
         bounds.x = state.context_cursor.x;
         bounds.y = state.context_cursor.y;
 
         Some(
             crate::widget::menu::Menu {
-                tree: &mut tree.children[0],
-                menu_roots: context_menu,
+                tree: menu_state,
+                menu_roots: std::borrow::Cow::Owned(context_menu.clone()),
                 bounds_expand: 16,
                 menu_overlays_parent: true,
                 close_condition: CloseCondition {
@@ -1596,12 +1605,16 @@ where
                 item_width: ItemWidth::Uniform(240),
                 item_height: ItemHeight::Dynamic(40),
                 bar_bounds: bounds,
-                main_offset: -(bounds.height as i32),
+                main_offset: -bounds.height as i32,
                 cross_offset: 0,
                 root_bounds_list: vec![bounds],
                 path_highlight: Some(PathHighlight::MenuActive),
-                style: &crate::theme::menu_bar::MenuBarStyle::Default,
+                style: std::borrow::Cow::Borrowed(&crate::theme::menu_bar::MenuBarStyle::Default),
                 position: Point::new(translation.x, translation.y),
+                is_overlay: true,
+                window_id: window::Id::NONE,
+                depth: 0,
+                on_surface_action: None,
             }
             .overlay(),
         )
@@ -1653,6 +1666,8 @@ where
 
 /// State that is maintained by each individual widget.
 pub struct LocalState {
+    /// Menu state
+    pub(crate) menu_state: MenuBarState,
     /// Defines how many buttons to show at a time.
     pub(super) buttons_visible: usize,
     /// Button visibility offset, when collapsed.

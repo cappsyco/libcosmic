@@ -437,7 +437,11 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::Theme, crate::Renderer>
         if !viewport.intersects(&bounds) {
             return;
         }
-        let content_layout = layout.children().next().unwrap();
+
+        // FIXME: Why is there no content layout
+        let Some(content_layout) = layout.children().next() else {
+            return;
+        };
 
         let mut headerbar_alpha = None;
 
@@ -460,7 +464,6 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::Theme, crate::Renderer>
                 if !self.selected && matches!(self.style, crate::theme::Button::HeaderBar) {
                     headerbar_alpha = Some(0.8);
                 }
-
                 theme.hovered(state.is_focused, self.selected, &self.style)
             }
         } else {
