@@ -11,18 +11,18 @@ use crate::widget::menu::{
 };
 use derive_setters::Setters;
 use iced::touch::Finger;
-use iced::{Event, Vector, window};
+use iced::{Event, Vector, keyboard, window};
 use iced_core::widget::{Tree, Widget, tree};
 use iced_core::{Length, Point, Size, event, mouse, touch};
 use std::collections::HashSet;
 use std::sync::Arc;
 
 /// A context menu is a menu in a graphical user interface that appears upon user interaction, such as a right-click mouse operation.
-pub fn context_menu<Message: 'static + Clone>(
-    content: impl Into<crate::Element<'static, Message>> + 'static,
+pub fn context_menu<'a, Message: 'static + Clone>(
+    content: impl Into<crate::Element<'a, Message>>,
     // on_context: Message,
     context_menu: Option<Vec<menu::Tree<Message>>>,
-) -> ContextMenu<'static, Message> {
+) -> ContextMenu<'a, Message> {
     let mut this = ContextMenu {
         content: content.into(),
         context_menu: context_menu.map(|menus| {
@@ -31,6 +31,7 @@ pub fn context_menu<Message: 'static + Clone>(
                 menus,
             )]
         }),
+        close_on_escape: true,
         window_id: window::Id::RESERVED,
         on_surface_action: None,
     };
@@ -51,6 +52,7 @@ pub struct ContextMenu<'a, Message> {
     #[setters(skip)]
     context_menu: Option<Vec<menu::Tree<Message>>>,
     pub window_id: window::Id,
+    pub close_on_escape: bool,
     #[setters(skip)]
     pub(crate) on_surface_action:
         Option<Arc<dyn Fn(crate::surface::Action) -> Message + Send + Sync + 'static>>,
@@ -344,8 +346,40 @@ impl<Message: 'static + Clone> Widget<Message, crate::Theme, crate::Renderer>
             }
             state.open
         });
+        let mut was_open = false;
+        if matches!(event,
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                ..
+            })
+            | Event::Mouse(mouse::Event::ButtonPressed(
+                mouse::Button::Right | mouse::Button::Left,
+            ))
+            | Event::Touch(touch::Event::FingerPressed { .. })
+            | Event::Window(window::Event::Focused)
+                if open )
+        {
+            state.menu_bar_state.inner.with_data_mut(|state| {
+                was_open = true;
+                state.menu_states.clear();
+                state.active_root.clear();
+                state.open = false;
 
-        if cursor.is_over(bounds) {
+                #[cfg(all(feature = "wayland", feature = "winit", feature = "surface-message"))]
+                if matches!(WINDOWING_SYSTEM.get(), Some(WindowingSystem::Wayland)) {
+                    if let Some(id) = state.popup_id.remove(&self.window_id) {
+                        {
+                            let surface_action = self.on_surface_action.as_ref().unwrap();
+                            shell
+                                .publish(surface_action(crate::surface::action::destroy_popup(id)));
+                        }
+                        state.view_cursor = cursor;
+                    }
+                }
+            });
+        }
+
+        if !was_open && cursor.is_over(bounds) {
             let fingers_pressed = state.fingers_pressed.len();
 
             match event {
@@ -357,36 +391,12 @@ impl<Message: 'static + Clone> Widget<Message, crate::Theme, crate::Renderer>
                     state.fingers_pressed.remove(&id);
                 }
 
-                Event::Window(window::Event::Focused) => {
-                    #[cfg(all(
-                        feature = "wayland",
-                        feature = "winit",
-                        feature = "surface-message"
-                    ))]
-                    if matches!(WINDOWING_SYSTEM.get(), Some(WindowingSystem::Wayland)) {
-                        state.menu_bar_state.inner.with_data_mut(|state| {
-                            if let Some(id) = state.popup_id.remove(&self.window_id) {
-                                state.menu_states.clear();
-                                state.active_root.clear();
-                                state.open = false;
-
-                                {
-                                    let surface_action = self.on_surface_action.as_ref().unwrap();
-                                    shell.publish(surface_action(
-                                        crate::surface::action::destroy_popup(id),
-                                    ));
-                                }
-                                state.view_cursor = cursor;
-                            }
-                        });
-                    }
-                }
-
                 _ => (),
             }
 
             // Present a context menu on a right click event.
-            if self.context_menu.is_some()
+            if !was_open
+                && self.context_menu.is_some()
                 && (right_button_released(&event) || (touch_lifted(&event) && fingers_pressed == 2))
             {
                 state.context_cursor = cursor.position().unwrap_or_default();
@@ -401,64 +411,35 @@ impl<Message: 'static + Clone> Widget<Message, crate::Theme, crate::Renderer>
                 }
 
                 return event::Status::Captured;
-            } else if right_button_released(&event)
+            } else if !was_open && right_button_released(&event)
                 || (touch_lifted(&event))
                 || left_button_released(&event)
             {
-                #[cfg(all(feature = "wayland", feature = "winit", feature = "surface-message"))]
-                if matches!(WINDOWING_SYSTEM.get(), Some(WindowingSystem::Wayland)) {
-                    state.menu_bar_state.inner.with_data_mut(|state| {
-                        if let Some(id) = state.popup_id.remove(&self.window_id) {
-                            state.menu_states.clear();
-                            state.active_root.clear();
-                            state.open = false;
+                state.menu_bar_state.inner.with_data_mut(|state| {
+                    was_open = true;
+                    state.menu_states.clear();
+                    state.active_root.clear();
+                    state.open = false;
 
-                            {
-                                let surface_action = self.on_surface_action.as_ref().unwrap();
-
-                                shell.publish(surface_action(
-                                    crate::surface::action::destroy_popup(id),
-                                ));
-                            }
-                            state.view_cursor = cursor;
-                        }
-                    });
-                }
-            }
-        } else if open {
-            match event {
-                Event::Mouse(mouse::Event::ButtonReleased(
-                    mouse::Button::Right | mouse::Button::Left,
-                ))
-                | Event::Touch(touch::Event::FingerLifted { .. }) => {
                     #[cfg(all(
                         feature = "wayland",
                         feature = "winit",
                         feature = "surface-message"
                     ))]
                     if matches!(WINDOWING_SYSTEM.get(), Some(WindowingSystem::Wayland)) {
-                        state.menu_bar_state.inner.with_data_mut(|state| {
-                            if let Some(id) = state.popup_id.remove(&self.window_id) {
-                                state.menu_states.clear();
-                                state.active_root.clear();
-                                state.open = false;
-
-                                {
-                                    let surface_action = self.on_surface_action.as_ref().unwrap();
-
-                                    shell.publish(surface_action(
-                                        crate::surface::action::destroy_popup(id),
-                                    ));
-                                }
-                                state.view_cursor = cursor;
+                        if let Some(id) = state.popup_id.remove(&self.window_id) {
+                            {
+                                let surface_action = self.on_surface_action.as_ref().unwrap();
+                                shell.publish(surface_action(
+                                    crate::surface::action::destroy_popup(id),
+                                ));
                             }
-                        });
+                            state.view_cursor = cursor;
+                        }
                     }
-                }
-                _ => (),
+                });
             }
         }
-
         self.content.as_widget_mut().on_event(
             &mut tree.children[0],
             event,
@@ -539,10 +520,8 @@ impl<Message: 'static + Clone> Widget<Message, crate::Theme, crate::Renderer>
     }
 }
 
-impl<'a, Message: Clone + 'static> From<ContextMenu<'static, Message>>
-    for crate::Element<'static, Message>
-{
-    fn from(widget: ContextMenu<'static, Message>) -> Self {
+impl<'a, Message: Clone + 'static> From<ContextMenu<'a, Message>> for crate::Element<'a, Message> {
+    fn from(widget: ContextMenu<'a, Message>) -> Self {
         Self::new(widget)
     }
 }

@@ -16,6 +16,7 @@ use iced::{
 };
 use iced_core::{Background, Border, Color, Shadow, Vector};
 use iced_widget::{pane_grid::Highlight, text_editor, text_input};
+use palette::WithAlpha;
 use std::rc::Rc;
 
 pub mod application {
@@ -155,8 +156,8 @@ impl Button {
             Self::Positive => &cosmic.success_button,
             Self::Destructive => &cosmic.destructive_button,
             Self::Text => &cosmic.text_button,
-            Self::Link => &cosmic.accent_button,
-            Self::LinkActive => &cosmic.accent_button,
+            Self::Link => &cosmic.link_button,
+            Self::LinkActive => &cosmic.link_button,
             Self::Transparent => &TRANSPARENT_COMPONENT,
             Self::Deactivated => &theme.current_container().component,
             Self::Card => &theme.current_container().component,
@@ -189,6 +190,7 @@ impl iced_checkbox::Catalog for Theme {
         Checkbox::default()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn style(
         &self,
         class: &Self::Class<'_>,
@@ -207,7 +209,7 @@ impl iced_checkbox::Catalog for Theme {
                         background: Background::Color(if is_checked {
                             cosmic.accent.base.into()
                         } else {
-                            cosmic.button.base.into()
+                            self.current_container().small_widget.into()
                         }),
                         icon_color: cosmic.accent.on.into(),
                         border: Border {
@@ -216,7 +218,7 @@ impl iced_checkbox::Catalog for Theme {
                             color: if is_checked {
                                 cosmic.accent.base
                             } else {
-                                cosmic.button.border
+                                cosmic.palette.neutral_8
                             }
                             .into(),
                         },
@@ -227,13 +229,13 @@ impl iced_checkbox::Catalog for Theme {
                         background: Background::Color(if is_checked {
                             cosmic.background.component.base.into()
                         } else {
-                            cosmic.background.base.into()
+                            self.current_container().small_widget.into()
                         }),
                         icon_color: cosmic.background.on.into(),
                         border: Border {
                             radius: corners.radius_xs.into(),
                             width: if is_checked { 0.0 } else { 1.0 },
-                            color: cosmic.button.border.into(),
+                            color: cosmic.palette.neutral_8.into(),
                         },
                         text_color: None,
                     },
@@ -241,7 +243,7 @@ impl iced_checkbox::Catalog for Theme {
                         background: Background::Color(if is_checked {
                             cosmic.success.base.into()
                         } else {
-                            cosmic.button.base.into()
+                            self.current_container().small_widget.into()
                         }),
                         icon_color: cosmic.success.on.into(),
                         border: Border {
@@ -250,7 +252,7 @@ impl iced_checkbox::Catalog for Theme {
                             color: if is_checked {
                                 cosmic.success.base
                             } else {
-                                cosmic.button.border
+                                cosmic.palette.neutral_8
                             }
                             .into(),
                         },
@@ -260,7 +262,7 @@ impl iced_checkbox::Catalog for Theme {
                         background: Background::Color(if is_checked {
                             cosmic.destructive.base.into()
                         } else {
-                            cosmic.button.base.into()
+                            self.current_container().small_widget.into()
                         }),
                         icon_color: cosmic.destructive.on.into(),
                         border: Border {
@@ -269,7 +271,7 @@ impl iced_checkbox::Catalog for Theme {
                             color: if is_checked {
                                 cosmic.destructive.base
                             } else {
-                                cosmic.button.border
+                                cosmic.palette.neutral_8
                             }
                             .into(),
                         },
@@ -292,84 +294,89 @@ impl iced_checkbox::Catalog for Theme {
                 }
                 active
             }
-            iced_checkbox::Status::Hovered { is_checked } => match class {
-                Checkbox::Primary => iced_checkbox::Style {
-                    background: Background::Color(if is_checked {
-                        cosmic.accent.base.into()
-                    } else {
-                        cosmic.button.base.into()
-                    }),
-                    icon_color: cosmic.accent.on.into(),
-                    border: Border {
-                        radius: corners.radius_xs.into(),
-                        width: if is_checked { 0.0 } else { 1.0 },
-                        color: if is_checked {
-                            cosmic.accent.base
+            iced_checkbox::Status::Hovered { is_checked } => {
+                let cur_container = self.current_container().small_widget;
+                // TODO: this should probably be done with a custom widget instead, or the theme needs more small widget variables.
+                let hovered_bg = over(cosmic.palette.neutral_0.with_alpha(0.1), cur_container);
+                match class {
+                    Checkbox::Primary => iced_checkbox::Style {
+                        background: Background::Color(if is_checked {
+                            cosmic.accent.hover_state_color().into()
                         } else {
-                            cosmic.button.border
-                        }
-                        .into(),
+                            hovered_bg.into()
+                        }),
+                        icon_color: cosmic.accent.on.into(),
+                        border: Border {
+                            radius: corners.radius_xs.into(),
+                            width: if is_checked { 0.0 } else { 1.0 },
+                            color: if is_checked {
+                                cosmic.accent.base
+                            } else {
+                                cosmic.palette.neutral_8
+                            }
+                            .into(),
+                        },
+                        text_color: None,
                     },
-                    text_color: None,
-                },
-                Checkbox::Secondary => iced_checkbox::Style {
-                    background: Background::Color(if is_checked {
-                        self.current_container().base.into()
-                    } else {
-                        cosmic.button.base.into()
-                    }),
-                    icon_color: self.current_container().on.into(),
-                    border: Border {
-                        radius: corners.radius_xs.into(),
-                        width: if is_checked { 0.0 } else { 1.0 },
-                        color: if is_checked {
-                            self.current_container().base
+                    Checkbox::Secondary => iced_checkbox::Style {
+                        background: Background::Color(if is_checked {
+                            self.current_container().component.hover.into()
                         } else {
-                            cosmic.button.border
-                        }
-                        .into(),
+                            hovered_bg.into()
+                        }),
+                        icon_color: self.current_container().on.into(),
+                        border: Border {
+                            radius: corners.radius_xs.into(),
+                            width: if is_checked { 0.0 } else { 1.0 },
+                            color: if is_checked {
+                                self.current_container().base
+                            } else {
+                                cosmic.palette.neutral_8
+                            }
+                            .into(),
+                        },
+                        text_color: None,
                     },
-                    text_color: None,
-                },
-                Checkbox::Success => iced_checkbox::Style {
-                    background: Background::Color(if is_checked {
-                        cosmic.success.base.into()
-                    } else {
-                        cosmic.button.base.into()
-                    }),
-                    icon_color: cosmic.success.on.into(),
-                    border: Border {
-                        radius: corners.radius_xs.into(),
-                        width: if is_checked { 0.0 } else { 1.0 },
-                        color: if is_checked {
-                            cosmic.success.base
+                    Checkbox::Success => iced_checkbox::Style {
+                        background: Background::Color(if is_checked {
+                            cosmic.success.hover.into()
                         } else {
-                            cosmic.button.border
-                        }
-                        .into(),
+                            hovered_bg.into()
+                        }),
+                        icon_color: cosmic.success.on.into(),
+                        border: Border {
+                            radius: corners.radius_xs.into(),
+                            width: if is_checked { 0.0 } else { 1.0 },
+                            color: if is_checked {
+                                cosmic.success.base
+                            } else {
+                                cosmic.palette.neutral_8
+                            }
+                            .into(),
+                        },
+                        text_color: None,
                     },
-                    text_color: None,
-                },
-                Checkbox::Danger => iced_checkbox::Style {
-                    background: Background::Color(if is_checked {
-                        cosmic.destructive.base.into()
-                    } else {
-                        cosmic.button.base.into()
-                    }),
-                    icon_color: cosmic.destructive.on.into(),
-                    border: Border {
-                        radius: corners.radius_xs.into(),
-                        width: if is_checked { 0.0 } else { 1.0 },
-                        color: if is_checked {
-                            cosmic.destructive.base
+                    Checkbox::Danger => iced_checkbox::Style {
+                        background: Background::Color(if is_checked {
+                            cosmic.destructive.hover.into()
                         } else {
-                            cosmic.button.border
-                        }
-                        .into(),
+                            hovered_bg.into()
+                        }),
+                        icon_color: cosmic.destructive.on.into(),
+                        border: Border {
+                            radius: corners.radius_xs.into(),
+                            width: if is_checked { 0.0 } else { 1.0 },
+                            color: if is_checked {
+                                cosmic.destructive.base
+                            } else {
+                                cosmic.palette.neutral_8
+                            }
+                            .into(),
+                        },
+                        text_color: None,
                     },
-                    text_color: None,
-                },
-            },
+                }
+            }
         }
     }
 }
@@ -503,7 +510,7 @@ impl iced_container::Catalog for Theme {
             Container::HeaderBar { focused } => {
                 let (icon_color, text_color) = if *focused {
                     (
-                        Color::from(cosmic.accent.base),
+                        Color::from(cosmic.accent_text_color()),
                         Color::from(cosmic.background.on),
                     )
                 } else {
@@ -666,9 +673,9 @@ impl slider::Catalog for Theme {
                     (
                         cosmic.accent_text_color(),
                         if is_dark {
-                            cosmic.palette.neutral_6
+                            cosmic.palette.neutral_5
                         } else {
-                            cosmic.palette.neutral_4
+                            cosmic.palette.neutral_3
                         },
                     )
                 } else {
@@ -720,9 +727,8 @@ impl slider::Catalog for Theme {
                         border_radius: cosmic.corner_radii.radius_m.into(),
                     };
                     appearance.handle.border_width = 3.0;
-                    let mut border_color = self.cosmic().palette.neutral_10;
-                    border_color.alpha = 0.1;
-                    appearance.handle.border_color = border_color.into();
+                    appearance.handle.border_color =
+                        self.cosmic().palette.neutral_10.with_alpha(0.1).into();
                     appearance
                 }
                 Slider::Custom { hovered, .. } => hovered(self),
@@ -736,15 +742,12 @@ impl slider::Catalog for Theme {
                             border_radius: cosmic.corner_radii.radius_m.into(),
                         };
                         appearance.handle.border_width = 3.0;
-                        let mut border_color = self.cosmic().palette.neutral_10;
-                        border_color.alpha = 0.1;
-                        appearance.handle.border_color = border_color.into();
+                        appearance.handle.border_color =
+                            self.cosmic().palette.neutral_10.with_alpha(0.1).into();
                         appearance
                     };
-                    let mut border_color = self.cosmic().palette.neutral_10;
-                    border_color.alpha = 0.2;
-                    style.handle.border_color = border_color.into();
-
+                    style.handle.border_color =
+                        self.cosmic().palette.neutral_10.with_alpha(0.2).into();
                     style
                 }
                 Slider::Custom { dragging, .. } => dragging(self),
@@ -768,7 +771,7 @@ impl menu::Catalog for Theme {
                 radius: cosmic.corner_radii.radius_m.into(),
                 ..Default::default()
             },
-            selected_text_color: cosmic.accent.base.into(),
+            selected_text_color: cosmic.accent_text_color().into(),
             selected_background: Background::Color(cosmic.background.component.hover.into()),
         }
     }
@@ -823,9 +826,8 @@ impl radio::Catalog for Theme {
     fn default<'a>() -> Self::Class<'a> {}
 
     fn style(&self, class: &Self::Class<'_>, status: radio::Status) -> radio::Style {
+        let cur_container = self.current_container();
         let theme = self.cosmic();
-        let mut neutral_10 = theme.palette.neutral_10;
-        neutral_10.alpha = 0.1;
 
         match status {
             radio::Status::Active { is_selected } => radio::Style {
@@ -833,35 +835,37 @@ impl radio::Catalog for Theme {
                     Color::from(theme.accent.base).into()
                 } else {
                     // TODO: this seems to be defined weirdly in FIGMA
-                    Color::from(theme.background.base).into()
+                    Color::from(cur_container.small_widget).into()
                 },
                 dot_color: theme.accent.on.into(),
                 border_width: 1.0,
                 border_color: if is_selected {
                     Color::from(theme.accent.base)
                 } else {
-                    // TODO: this seems to be defined weirdly in FIGMA
-                    Color::from(theme.palette.neutral_7)
+                    Color::from(theme.palette.neutral_8)
                 },
                 text_color: None,
             },
-            radio::Status::Hovered { is_selected } => radio::Style {
-                background: if is_selected {
-                    Color::from(theme.accent.base).into()
+            radio::Status::Hovered { is_selected } => {
+                let bg = if is_selected {
+                    theme.accent.base
                 } else {
-                    // TODO: this seems to be defined weirdly in FIGMA
-                    Color::from(neutral_10).into()
-                },
-                dot_color: theme.accent.on.into(),
-                border_width: 1.0,
-                border_color: if is_selected {
-                    Color::from(theme.accent.base)
-                } else {
-                    // TODO: this seems to be defined weirdly in FIGMA
-                    Color::from(theme.palette.neutral_7)
-                },
-                text_color: None,
-            },
+                    self.current_container().small_widget
+                };
+                // TODO: this should probably be done with a custom widget instead, or the theme needs more small widget variables.
+                let hovered_bg = Color::from(over(theme.palette.neutral_0.with_alpha(0.1), bg));
+                radio::Style {
+                    background: hovered_bg.into(),
+                    dot_color: theme.accent.on.into(),
+                    border_width: 1.0,
+                    border_color: if is_selected {
+                        Color::from(theme.accent.base)
+                    } else {
+                        Color::from(theme.palette.neutral_8)
+                    },
+                    text_color: None,
+                }
+            }
         }
     }
 }
@@ -877,14 +881,17 @@ impl toggler::Catalog for Theme {
     fn style(&self, class: &Self::Class<'_>, status: toggler::Status) -> toggler::Style {
         let cosmic = self.cosmic();
         const HANDLE_MARGIN: f32 = 2.0;
-        let mut neutral_10 = cosmic.palette.neutral_10;
-        neutral_10.alpha = 0.1;
+        let neutral_10 = cosmic.palette.neutral_10.with_alpha(0.1);
 
         let mut active = toggler::Style {
             background: if matches!(status, toggler::Status::Active { is_toggled: true }) {
                 cosmic.accent.base.into()
             } else {
-                cosmic.palette.neutral_5.into()
+                if cosmic.is_dark {
+                    cosmic.palette.neutral_6.into()
+                } else {
+                    cosmic.palette.neutral_5.into()
+                }
             },
             foreground: cosmic.palette.neutral_2.into(),
             border_radius: cosmic.radius_xl().into(),
@@ -906,7 +913,14 @@ impl toggler::Catalog for Theme {
                     background: if is_active {
                         over(neutral_10, cosmic.accent_color())
                     } else {
-                        over(neutral_10, cosmic.palette.neutral_5)
+                        over(
+                            neutral_10,
+                            if cosmic.is_dark {
+                                cosmic.palette.neutral_6
+                            } else {
+                                cosmic.palette.neutral_5
+                            },
+                        )
                     }
                     .into(),
                     ..active
@@ -1098,8 +1112,8 @@ impl scrollable::Catalog for Theme {
         match status {
             scrollable::Status::Active => {
                 let cosmic = self.cosmic();
-                let mut neutral_5 = cosmic.palette.neutral_5;
-                neutral_5.alpha = 0.7;
+                let neutral_5 = cosmic.palette.neutral_5.with_alpha(0.7);
+                let neutral_6 = cosmic.palette.neutral_6.with_alpha(0.7);
                 let mut a = scrollable::Style {
                     container: iced_container::transparent(self),
                     vertical_rail: scrollable::Rail {
@@ -1109,7 +1123,11 @@ impl scrollable::Catalog for Theme {
                         },
                         background: None,
                         scroller: scrollable::Scroller {
-                            color: neutral_5.into(),
+                            color: if cosmic.is_dark {
+                                neutral_6.into()
+                            } else {
+                                neutral_5.into()
+                            },
                             border: Border {
                                 radius: cosmic.corner_radii.radius_s.into(),
                                 ..Default::default()
@@ -1123,7 +1141,11 @@ impl scrollable::Catalog for Theme {
                         },
                         background: None,
                         scroller: scrollable::Scroller {
-                            color: neutral_5.into(),
+                            color: if cosmic.is_dark {
+                                neutral_6.into()
+                            } else {
+                                neutral_5.into()
+                            },
                             border: Border {
                                 radius: cosmic.corner_radii.radius_s.into(),
                                 ..Default::default()
@@ -1132,12 +1154,17 @@ impl scrollable::Catalog for Theme {
                     },
                     gap: None,
                 };
+                let small_widget_container = self
+                    .current_container()
+                    .small_widget
+                    .clone()
+                    .with_alpha(0.7);
 
                 if matches!(class, Scrollable::Permanent) {
-                    let mut neutral_3 = cosmic.palette.neutral_3;
-                    neutral_3.alpha = 0.7;
-                    a.horizontal_rail.background = Some(Background::Color(neutral_3.into()));
-                    a.vertical_rail.background = Some(Background::Color(neutral_3.into()));
+                    a.horizontal_rail.background =
+                        Some(Background::Color(small_widget_container.into()));
+                    a.vertical_rail.background =
+                        Some(Background::Color(small_widget_container.into()));
                 }
 
                 a
@@ -1145,14 +1172,11 @@ impl scrollable::Catalog for Theme {
             // TODO handle vertical / horizontal
             scrollable::Status::Hovered { .. } | scrollable::Status::Dragged { .. } => {
                 let cosmic = self.cosmic();
-                let mut neutral_5 = cosmic.palette.neutral_5;
-                neutral_5.alpha = 0.7;
-
-                // TODO hover
+                let neutral_5 = cosmic.palette.neutral_5.with_alpha(0.7);
+                let neutral_6 = cosmic.palette.neutral_6.with_alpha(0.7);
 
                 // if is_mouse_over_scrollbar {
-                //     let mut hover_overlay = cosmic.palette.neutral_0;
-                //     hover_overlay.alpha = 0.2;
+                //     let hover_overlay = cosmic.palette.neutral_0.with_alpha(0.2);
                 //     neutral_5 = over(hover_overlay, neutral_5);
                 // }
                 let mut a: scrollable::Style = scrollable::Style {
@@ -1164,7 +1188,11 @@ impl scrollable::Catalog for Theme {
                         },
                         background: None,
                         scroller: scrollable::Scroller {
-                            color: neutral_5.into(),
+                            color: if cosmic.is_dark {
+                                neutral_6.into()
+                            } else {
+                                neutral_5.into()
+                            },
                             border: Border {
                                 radius: cosmic.corner_radii.radius_s.into(),
                                 ..Default::default()
@@ -1178,7 +1206,11 @@ impl scrollable::Catalog for Theme {
                         },
                         background: None,
                         scroller: scrollable::Scroller {
-                            color: neutral_5.into(),
+                            color: if cosmic.is_dark {
+                                neutral_6.into()
+                            } else {
+                                neutral_5.into()
+                            },
                             border: Border {
                                 radius: cosmic.corner_radii.radius_s.into(),
                                 ..Default::default()
@@ -1189,10 +1221,16 @@ impl scrollable::Catalog for Theme {
                 };
 
                 if matches!(class, Scrollable::Permanent) {
-                    let mut neutral_3 = cosmic.palette.neutral_3;
-                    neutral_3.alpha = 0.7;
-                    a.horizontal_rail.background = Some(Background::Color(neutral_3.into()));
-                    a.vertical_rail.background = Some(Background::Color(neutral_3.into()));
+                    let small_widget_container = self
+                        .current_container()
+                        .small_widget
+                        .clone()
+                        .with_alpha(0.7);
+
+                    a.horizontal_rail.background =
+                        Some(Background::Color(small_widget_container.into()));
+                    a.vertical_rail.background =
+                        Some(Background::Color(small_widget_container.into()));
                 }
 
                 a
@@ -1261,7 +1299,7 @@ impl iced_widget::text::Catalog for Theme {
     fn style(&self, class: &Self::Class<'_>) -> iced_widget::text::Style {
         match class {
             Text::Accent => iced_widget::text::Style {
-                color: Some(self.cosmic().accent.base.into()),
+                color: Some(self.cosmic().accent_text_color().into()),
             },
             Text::Default => iced_widget::text::Style { color: None },
             Text::Color(c) => iced_widget::text::Style { color: Some(*c) },
@@ -1289,13 +1327,11 @@ impl text_input::Catalog for Theme {
 
     fn style(&self, class: &Self::Class<'_>, status: text_input::Status) -> text_input::Style {
         let palette = self.cosmic();
-        let mut bg = palette.palette.neutral_7;
-        bg.alpha = 0.25;
+        let bg = self.current_container().small_widget.with_alpha(0.25);
 
-        let mut neutral_9 = palette.palette.neutral_9;
+        let neutral_9 = palette.palette.neutral_9;
         let value = neutral_9.into();
-        neutral_9.alpha = 0.7;
-        let placeholder = neutral_9.into();
+        let placeholder = neutral_9.with_alpha(0.7).into();
         let selection = palette.accent.base.into();
 
         let mut appearance = match class {
@@ -1327,8 +1363,7 @@ impl text_input::Catalog for Theme {
         match status {
             text_input::Status::Active => appearance,
             text_input::Status::Hovered => {
-                let mut bg = palette.palette.neutral_7;
-                bg.alpha = 0.25;
+                let bg = self.current_container().small_widget.with_alpha(0.25);
 
                 match class {
                     TextInput::Default => text_input::Style {
@@ -1357,8 +1392,7 @@ impl text_input::Catalog for Theme {
                 }
             }
             text_input::Status::Focused => {
-                let mut bg = palette.palette.neutral_7;
-                bg.alpha = 0.25;
+                let bg = self.current_container().small_widget.with_alpha(0.25);
 
                 match class {
                     TextInput::Default => text_input::Style {
@@ -1433,9 +1467,7 @@ impl iced_widget::text_editor::Catalog for Theme {
 
         let selection = cosmic.accent.base.into();
         let value = cosmic.palette.neutral_9.into();
-        let mut placeholder = cosmic.palette.neutral_9;
-        placeholder.alpha = 0.7;
-        let placeholder = placeholder.into();
+        let placeholder = cosmic.palette.neutral_9.with_alpha(0.7).into();
         let icon = cosmic.background.on.into();
 
         match status {

@@ -219,12 +219,10 @@ where
 #[allow(clippy::trivially_copy_pass_by_ref)]
 fn container_style(theme: &crate::Theme) -> iced_widget::container::Style {
     let cosmic_theme = &theme.cosmic();
-    let mut neutral_10 = cosmic_theme.palette.neutral_10;
-    neutral_10.alpha = 0.1;
     let accent = &cosmic_theme.accent;
     let corners = &cosmic_theme.corner_radii;
+    let current_container = theme.current_container();
     let border = if theme.theme_type.is_high_contrast() {
-        let current_container = theme.current_container();
         Border {
             radius: corners.radius_s.into(),
             width: 1.,
@@ -239,8 +237,8 @@ fn container_style(theme: &crate::Theme) -> iced_widget::container::Style {
     };
 
     iced_widget::container::Style {
-        icon_color: Some(accent.base.into()),
-        text_color: Some(cosmic_theme.palette.neutral_10.into()),
+        icon_color: Some(current_container.on.into()),
+        text_color: Some(current_container.on.into()),
         background: None,
         border,
         shadow: Shadow::default(),

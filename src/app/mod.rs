@@ -437,6 +437,14 @@ where
     fn dbus_activation(&mut self, msg: crate::dbus_activation::Message) -> Task<Self::Message> {
         Task::none()
     }
+
+    /// Invoked on connect to dbus session socket used for dbus activation
+    ///
+    /// Can be used to expose custom interfaces on the same owned name.
+    #[cfg(feature = "single-instance")]
+    fn dbus_connection(&mut self, conn: zbus::Connection) -> Task<Self::Message> {
+        Task::none()
+    }
 }
 
 /// Methods automatically derived for all types implementing [`Application`].
@@ -548,8 +556,9 @@ impl<App: Application> ApplicationExt for App {
         let show_context = core.window.show_context;
         let nav_bar_active = core.nav_bar_active();
         let focused = core
-            .focused_window()
-            .is_some_and(|i| Some(i) == self.core().main_window_id());
+            .focus_chain()
+            .iter()
+            .any(|i| Some(*i) == self.core().main_window_id());
 
         let border_padding = if sharp_corners { 8 } else { 7 };
 

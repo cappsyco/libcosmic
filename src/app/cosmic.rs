@@ -17,6 +17,8 @@ use iced::Application as IcedApplication;
 use iced::event::wayland;
 use iced::{Task, window};
 use iced_futures::event::listen_with;
+#[cfg(feature = "wayland")]
+use iced_winit::SurfaceIdWrapper;
 use palette::color_difference::EuclideanDistance;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -84,7 +86,11 @@ pub struct Cosmic<App: Application> {
     #[cfg(feature = "wayland")]
     pub surface_views: HashMap<
         window::Id,
-        Box<dyn for<'a> Fn(&'a App) -> Element<'a, crate::Action<App::Message>>>,
+        (
+            Option<window::Id>,
+            SurfaceIdWrapper,
+            Box<dyn for<'a> Fn(&'a App) -> Element<'a, crate::Action<App::Message>>>,
+        ),
     >,
 }
 
@@ -449,14 +455,14 @@ where
     #[cfg(feature = "multi-window")]
     pub fn view(&self, id: window::Id) -> Element<crate::Action<T::Message>> {
         #[cfg(feature = "wayland")]
-        if let Some(v) = self.surface_views.get(&id) {
+        if let Some((_, _, v)) = self.surface_views.get(&id) {
             return v(&self.app);
         }
-        if !self
+        if self
             .app
             .core()
             .main_window_id()
-            .is_some_and(|main_id| main_id == id)
+            .is_none_or(|main_id| main_id != id)
         {
             return self.app.view_window(id).map(crate::Action::App);
         }
@@ -684,10 +690,11 @@ impl<T: Application> Cosmic<T> {
                 let mut cmds = vec![self.app.system_theme_mode_update(&keys, &mode)];
 
                 let core = self.app.core_mut();
-                let prev_is_dark = core.system_is_dark();
                 core.system_theme_mode = mode;
                 let is_dark = core.system_is_dark();
-                let changed = prev_is_dark != is_dark;
+                let changed = core.system_theme_mode.is_dark != is_dark
+                    || core.portal_is_dark != Some(is_dark)
+                    || core.system_theme.cosmic().is_dark != is_dark;
                 if changed {
                     core.theme_sub_counter += 1;
                     let mut new_theme = if is_dark {
@@ -755,6 +762,11 @@ impl<T: Application> Cosmic<T> {
                 }
             }
 
+            #[cfg(feature = "single-instance")]
+            Action::DbusConnection(conn) => {
+                return self.app.dbus_connection(conn);
+            }
+
             #[cfg(feature = "xdg-portal")]
             Action::DesktopSettings(crate::theme::portal::Desktop::ColorScheme(s)) => {
                 use ashpd::desktop::settings::ColorScheme;
@@ -773,10 +785,13 @@ impl<T: Application> Cosmic<T> {
                     ColorScheme::PreferLight => Some(false),
                 };
                 let core = self.app.core_mut();
-                let prev_is_dark = core.system_is_dark();
+
                 core.portal_is_dark = is_dark;
                 let is_dark = core.system_is_dark();
-                let changed = prev_is_dark != is_dark;
+                let changed = core.system_theme_mode.is_dark != is_dark
+                    || core.portal_is_dark != Some(is_dark)
+                    || core.system_theme.cosmic().is_dark != is_dark;
+
                 if changed {
                     core.theme_sub_counter += 1;
                     let new_theme = if is_dark {
@@ -841,13 +856,45 @@ impl<T: Application> Cosmic<T> {
             }
 
             Action::Focus(f) => {
-                self.app.core_mut().focused_window = Some(f);
+                #[cfg(all(
+                    feature = "wayland",
+                    feature = "multi-window",
+                    feature = "surface-message"
+                ))]
+                if let Some((
+                    parent,
+                    SurfaceIdWrapper::Subsurface(_) | SurfaceIdWrapper::Popup(_),
+                    _,
+                )) = self.surface_views.get(&f)
+                {
+                    // If the parent is already focused, push the new focus
+                    // to the end of the focus chain.
+                    if parent.is_some_and(|p| self.app.core().focused_window.last() == Some(&p)) {
+                        self.app.core_mut().focused_window.push(f);
+                        return iced::Task::none();
+                    } else {
+                        // set the whole parent chain to the focus chain
+                        let mut parent_chain = vec![f];
+                        let mut cur = *parent;
+                        while let Some(p) = cur {
+                            parent_chain.push(p);
+                            cur = self
+                                .surface_views
+                                .get(&p)
+                                .and_then(|(parent, _, _)| *parent);
+                        }
+                        parent_chain.reverse();
+                        self.app.core_mut().focused_window = parent_chain;
+                        return iced::Task::none();
+                    }
+                }
+                self.app.core_mut().focused_window = vec![f];
             }
 
             Action::Unfocus(id) => {
                 let core = self.app.core_mut();
-                if core.focused_window.as_ref().is_some_and(|cur| *cur == id) {
-                    core.focused_window = None;
+                if core.focused_window().as_ref().is_some_and(|cur| *cur == id) {
+                    core.focused_window.pop();
                 }
             }
             #[cfg(feature = "applet")]
@@ -886,7 +933,14 @@ impl<App: Application> Cosmic<App> {
     ) -> Task<crate::Action<App::Message>> {
         use iced_winit::commands::subsurface::get_subsurface;
 
-        self.surface_views.insert(settings.id, view);
+        self.surface_views.insert(
+            settings.id,
+            (
+                Some(settings.parent),
+                SurfaceIdWrapper::Subsurface(settings.id),
+                view,
+            ),
+        );
         get_subsurface(settings)
     }
 
@@ -901,7 +955,14 @@ impl<App: Application> Cosmic<App> {
     ) -> Task<crate::Action<App::Message>> {
         use iced_winit::commands::popup::get_popup;
 
-        self.surface_views.insert(settings.id, view);
+        self.surface_views.insert(
+            settings.id,
+            (
+                Some(settings.parent),
+                SurfaceIdWrapper::Popup(settings.id),
+                view,
+            ),
+        );
         get_popup(settings)
     }
 }
