@@ -21,18 +21,25 @@ use iced::{
 };
 use iced_core::mouse::ScrollDelta;
 use iced_core::text::{LineHeight, Renderer as TextRenderer, Shaping, Wrapping};
+use iced_core::widget::operation::Focusable;
 use iced_core::widget::{self, operation, tree};
-use iced_core::{Border, Gradient, Point, Renderer as IcedRenderer, Shadow, Text};
+use iced_core::{Border, Point, Renderer as IcedRenderer, Shadow, Text};
 use iced_core::{Clipboard, Layout, Shell, Widget, layout, renderer, widget::Tree};
 use iced_runtime::{Action, task};
 use slotmap::{Key, SecondaryMap};
 use std::borrow::Cow;
+use std::cell::{Cell, LazyCell};
 use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::mem;
 use std::time::{Duration, Instant};
+
+thread_local! {
+    // Prevents two segmented buttons from being focused at the same time.
+    static LAST_FOCUS_UPDATE: LazyCell<Cell<Instant>> = LazyCell::new(|| Cell::new(Instant::now()));
+}
 
 /// A command that focuses a segmented item stored in a widget.
 pub fn focus<Message: 'static>(id: Id) -> Task<Message> {
@@ -46,6 +53,8 @@ pub enum ItemBounds {
 
 /// Isolates variant-specific behaviors from [`SegmentedButton`].
 pub trait SegmentedVariant {
+    const VERTICAL: bool;
+
     /// Get the appearance for this variant of the widget.
     fn variant_appearance(
         theme: &crate::Theme,
@@ -107,11 +116,11 @@ where
     /// Spacing for each indent.
     pub(super) indent_spacing: u16,
     /// Desired font for active tabs.
-    pub(super) font_active: Option<crate::font::Font>,
+    pub(super) font_active: crate::font::Font,
     /// Desired font for hovered tabs.
-    pub(super) font_hovered: Option<crate::font::Font>,
+    pub(super) font_hovered: crate::font::Font,
     /// Desired font for inactive tabs.
-    pub(super) font_inactive: Option<crate::font::Font>,
+    pub(super) font_inactive: crate::font::Font,
     /// Size of the font.
     pub(super) font_size: f32,
     /// Desired width of the widget.
@@ -175,9 +184,9 @@ where
             minimum_button_width: u16::MIN,
             maximum_button_width: u16::MAX,
             indent_spacing: 16,
-            font_active: None,
-            font_hovered: None,
-            font_inactive: None,
+            font_active: crate::font::semibold(),
+            font_hovered: crate::font::semibold(),
+            font_inactive: crate::font::default(),
             font_size: 14.0,
             height: Length::Shrink,
             width: Length::Fill,
@@ -518,7 +527,9 @@ where
     }
 
     fn button_is_focused(&self, state: &LocalState, key: Entity) -> bool {
-        self.on_activate.is_some() && Item::Tab(key) == state.focused_item
+        state.focused.is_some()
+            && self.on_activate.is_some()
+            && Item::Tab(key) == state.focused_item
     }
 
     fn button_is_hovered(&self, state: &LocalState, key: Entity) -> bool {
@@ -528,6 +539,10 @@ where
                 .drag_offer
                 .as_ref()
                 .is_some_and(|id| id.data.is_some_and(|d| d == key))
+    }
+
+    fn button_is_pressed(&self, state: &LocalState, key: Entity) -> bool {
+        state.pressed_item == Some(Item::Tab(key))
     }
 
     /// Returns the drag id of the destination.
@@ -585,6 +600,7 @@ where
             collapsed: Default::default(),
             focused: Default::default(),
             focused_item: Default::default(),
+            focused_visible: false,
             hovered: Default::default(),
             known_length: Default::default(),
             middle_clicked: Default::default(),
@@ -603,20 +619,19 @@ where
 
         for key in self.model.order.iter().copied() {
             if let Some(text) = self.model.text.get(key) {
-                let (font, button_state) =
-                    if self.model.is_active(key) || self.button_is_focused(state, key) {
-                        (self.font_active, 0)
-                    } else if self.button_is_hovered(state, key) {
-                        (self.font_hovered, 1)
-                    } else {
-                        (self.font_inactive, 2)
-                    };
+                let font = if self.button_is_focused(state, key) {
+                    self.font_active
+                } else if state.show_context.is_some() || self.button_is_hovered(state, key) {
+                    self.font_hovered
+                } else if self.model.is_active(key) {
+                    self.font_active
+                } else {
+                    self.font_inactive
+                };
 
-                let font = font.unwrap_or_else(crate::font::default);
                 let mut hasher = DefaultHasher::new();
                 text.hash(&mut hasher);
                 font.hash(&mut hasher);
-                button_state.hash(&mut hasher);
                 let text_hash = hasher.finish();
 
                 if let Some(prev_hash) = state.text_hashes.insert(key, text_hash) {
@@ -633,7 +648,7 @@ where
                     horizontal_alignment: alignment::Horizontal::Left,
                     vertical_alignment: alignment::Vertical::Center,
                     shaping: Shaping::Advanced,
-                    wrapping: Wrapping::default(),
+                    wrapping: Wrapping::None,
                     line_height: self.line_height,
                 };
 
@@ -650,6 +665,13 @@ where
             state.menu_state.inner.with_data_mut(|inner| {
                 menu_roots_diff(context_menu, &mut inner.tree);
             });
+        }
+
+        // Unfocus if another segmented control was focused.
+        if let Some(f) = state.focused.as_ref() {
+            if f.updated_at != LAST_FOCUS_UPDATE.with(|f| f.get()) {
+                state.unfocus();
+            }
         }
     }
 
@@ -905,31 +927,17 @@ where
                             }
                         }
 
-                        if let Event::Mouse(mouse::Event::ButtonReleased(_))
-                        | Event::Touch(touch::Event::FingerLifted { .. }) = event
-                        {
-                            state.focused = false;
-                            state.focused_item = Item::None;
+                        if is_lifted(&event) {
+                            state.unfocus();
                         }
 
                         if let Some(on_activate) = self.on_activate.as_ref() {
-                            if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
-                            | Event::Touch(touch::Event::FingerPressed { .. }) = event
-                            {
+                            if is_pressed(&event) {
                                 state.pressed_item = Some(Item::Tab(key));
-                            } else if let Event::Mouse(mouse::Event::ButtonReleased(
-                                mouse::Button::Left,
-                            ))
-                            | Event::Touch(touch::Event::FingerLifted { .. }) = event
-                            {
-                                let mut can_activate = true;
-                                if state.pressed_item != Some(Item::Tab(key)) {
-                                    can_activate = false;
-                                }
-
-                                if can_activate {
+                            } else if is_lifted(&event) {
+                                if self.button_is_pressed(state, key) {
                                     shell.publish(on_activate(key));
-                                    state.focused = true;
+                                    state.set_focused();
                                     state.focused_item = Item::Tab(key);
                                     state.pressed_item = None;
                                     return event::Status::Captured;
@@ -1017,7 +1025,7 @@ where
 
                                     if let Some(key) = activate_key {
                                         shell.publish(on_activate(key));
-                                        state.focused = true;
+                                        state.set_focused();
                                         state.focused_item = Item::Tab(key);
                                         return event::Status::Captured;
                                     }
@@ -1027,25 +1035,25 @@ where
                     }
                 }
             }
-        } else if state.focused {
+        } else if state.is_focused() {
             // Unfocus on clicks outside of the boundaries of the segmented button.
-            if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
-            | Event::Touch(touch::Event::FingerPressed { .. }) = event
-            {
-                state.focused = true;
-                state.focused_item = Item::None;
+            if is_pressed(&event) {
+                state.unfocus();
                 state.pressed_item = None;
                 return event::Status::Ignored;
             }
+        } else if is_lifted(&event) {
+            state.pressed_item = None;
         }
 
-        if state.focused {
+        if state.is_focused() {
             if let Event::Keyboard(keyboard::Event::KeyPressed {
                 key: keyboard::Key::Named(keyboard::key::Named::Tab),
                 modifiers,
                 ..
             }) = event
             {
+                state.focused_visible = true;
                 return if modifiers.shift() {
                     self.focus_previous(state)
                 } else {
@@ -1171,47 +1179,15 @@ where
         let bounds: Rectangle = layout.bounds();
         let button_amount = self.model.items.len();
 
-        // Modifies alpha color when `on_activate` is unset.
-        let apply_alpha = |mut c: Color| {
-            if self.on_activate.is_none() {
-                c.a /= 2.0;
-            }
-
-            c
-        };
-
-        // Maps `apply_alpha` to background color.
-        let bg_with_alpha = |mut b| {
-            match &mut b {
-                Background::Color(c) => {
-                    *c = apply_alpha(*c);
-                }
-
-                Background::Gradient(g) => {
-                    let Gradient::Linear(l) = g;
-                    for c in &mut l.stops {
-                        let Some(stop) = c else {
-                            continue;
-                        };
-                        stop.color = apply_alpha(stop.color);
-                    }
-                }
-            }
-            b
-        };
-
         // Draw the background, if a background was defined.
         if let Some(background) = appearance.background {
             renderer.fill_quad(
                 renderer::Quad {
                     bounds,
-                    border: Border {
-                        radius: appearance.border_radius,
-                        ..Border::default()
-                    },
+                    border: appearance.border,
                     shadow: Shadow::default(),
                 },
-                bg_with_alpha(background),
+                background,
             );
         }
 
@@ -1222,7 +1198,7 @@ where
             // Previous tab button
             let mut background_appearance =
                 if self.on_activate.is_some() && Item::PrevButton == state.focused_item {
-                    Some(appearance.focus)
+                    Some(appearance.active)
                 } else if self.on_activate.is_some() && Item::PrevButton == state.hovered {
                     Some(appearance.hover)
                 } else {
@@ -1241,7 +1217,7 @@ where
                     },
                     background_appearance
                         .background
-                        .map_or(Background::Color(Color::TRANSPARENT), bg_with_alpha),
+                        .unwrap_or(Background::Color(Color::TRANSPARENT)),
                 );
             }
 
@@ -1251,13 +1227,11 @@ where
                 style,
                 cursor,
                 viewport,
-                apply_alpha(if state.buttons_offset == 0 {
+                if state.buttons_offset == 0 {
                     appearance.inactive.text_color
-                } else if let Item::PrevButton = state.focused_item {
-                    appearance.focus.text_color
                 } else {
                     appearance.active.text_color
-                }),
+                },
                 Rectangle {
                     x: tab_bounds.x + 8.0,
                     y: tab_bounds.y + f32::from(self.button_height) / 4.0,
@@ -1272,7 +1246,7 @@ where
             // Next tab button
             background_appearance =
                 if self.on_activate.is_some() && Item::NextButton == state.focused_item {
-                    Some(appearance.focus)
+                    Some(appearance.active)
                 } else if self.on_activate.is_some() && Item::NextButton == state.hovered {
                     Some(appearance.hover)
                 } else {
@@ -1301,13 +1275,13 @@ where
                 style,
                 cursor,
                 viewport,
-                apply_alpha(if self.next_tab_sensitive(state) {
+                if self.next_tab_sensitive(state) {
                     appearance.active.text_color
                 } else if let Item::NextButton = state.focused_item {
-                    appearance.focus.text_color
+                    appearance.active.text_color
                 } else {
                     appearance.inactive.text_color
-                }),
+                },
                 Rectangle {
                     x: tab_bounds.x + 8.0,
                     y: tab_bounds.y + f32::from(self.button_height) / 4.0,
@@ -1317,6 +1291,15 @@ where
                 icon::from_name("go-next-symbolic").size(16).icon(),
             );
         }
+
+        let rad_0 = THEME.lock().unwrap().cosmic().corner_radii.radius_0;
+
+        let divider_background = Background::Color(
+            crate::theme::active()
+                .cosmic()
+                .primary_component_divider()
+                .into(),
+        );
 
         // Draw each of the items in the widget.
         let mut nth = 0;
@@ -1349,22 +1332,25 @@ where
 
             let center_y = bounds.center_y();
 
-            let menu_open = !tree.children.is_empty()
-                && tree.children[0]
-                    .state
-                    .downcast_ref::<MenuBarState>()
-                    .inner
-                    .with_data(|data| data.open);
+            let menu_open = || {
+                state.show_context == Some(key)
+                    && !tree.children.is_empty()
+                    && tree.children[0]
+                        .state
+                        .downcast_ref::<MenuBarState>()
+                        .inner
+                        .with_data(|data| data.open)
+            };
 
             let key_is_active = self.model.is_active(key);
+            let key_is_focused = state.focused_visible && self.button_is_focused(state, key);
             let key_is_hovered = self.button_is_hovered(state, key);
-            let key_has_context_menu_open = menu_open && state.show_context == Some(key);
-            let status_appearance = if self.button_is_focused(state, key) {
-                appearance.focus
+            let status_appearance = if self.button_is_pressed(state, key) {
+                appearance.pressed
+            } else if key_is_hovered || menu_open() {
+                appearance.hover
             } else if key_is_active {
                 appearance.active
-            } else if key_is_hovered || key_has_context_menu_open {
-                appearance.hover
             } else {
                 appearance.inactive
             };
@@ -1377,53 +1363,108 @@ where
                 status_appearance.middle
             };
 
-            // Render the background of the button.
-            if status_appearance.background.is_some() {
+            // Draw the active hint on tabs
+            if appearance.active_width > 0.0 {
+                let active_width = if key_is_active {
+                    appearance.active_width
+                } else {
+                    1.0
+                };
+
                 renderer.fill_quad(
                     renderer::Quad {
-                        bounds,
-                        border: Border {
-                            radius: button_appearance.border_radius,
-                            ..Default::default()
+                        bounds: if Self::VERTICAL {
+                            Rectangle {
+                                x: bounds.x + bounds.width - active_width,
+                                width: active_width,
+                                ..bounds
+                            }
+                        } else {
+                            Rectangle {
+                                y: bounds.y + bounds.height - active_width,
+                                height: active_width,
+                                ..bounds
+                            }
                         },
-                        shadow: Shadow::default(),
-                    },
-                    status_appearance
-                        .background
-                        .map_or(Background::Color(Color::TRANSPARENT), bg_with_alpha),
-                );
-            }
-
-            // Draw the bottom border defined for this button.
-            if let Some((width, background)) = button_appearance.border_bottom {
-                let mut bounds = bounds;
-                bounds.y = bounds.y + bounds.height - width;
-                bounds.height = width;
-
-                let rad_0 = THEME.lock().unwrap().cosmic().corner_radii.radius_0;
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds,
                         border: Border {
                             radius: rad_0.into(),
                             ..Default::default()
                         },
                         shadow: Shadow::default(),
                     },
-                    bg_with_alpha(background.into()),
+                    appearance.active.text_color,
                 );
             }
 
             let original_bounds = bounds;
-
             bounds.x += f32::from(self.button_padding[0]);
             bounds.width -= f32::from(self.button_padding[0]) - f32::from(self.button_padding[2]);
+            let mut indent_padding = 0.0;
 
             // Adjust bounds by indent
             if let Some(indent) = self.model.indent(key) {
-                let adjustment = f32::from(indent) * f32::from(self.indent_spacing);
-                bounds.x += adjustment;
-                bounds.width -= adjustment;
+                if indent > 0 {
+                    let adjustment = f32::from(indent) * f32::from(self.indent_spacing);
+                    bounds.x += adjustment;
+                    bounds.width -= adjustment;
+
+                    // Draw indent line
+                    if let crate::theme::SegmentedButton::FileNav = self.style {
+                        if indent > 1 {
+                            indent_padding = 7.0;
+
+                            for level in 1..indent {
+                                renderer.fill_quad(
+                                    renderer::Quad {
+                                        bounds: Rectangle {
+                                            x: bounds.x
+                                                - (level as f32 * self.indent_spacing as f32)
+                                                + indent_padding,
+                                            width: 1.0,
+                                            ..bounds
+                                        },
+                                        border: Border {
+                                            radius: rad_0.into(),
+                                            ..Default::default()
+                                        },
+                                        shadow: Shadow::default(),
+                                    },
+                                    divider_background,
+                                );
+                            }
+
+                            indent_padding += 4.0;
+                        }
+                    }
+                }
+            }
+
+            // Render the background of the button.
+            if key_is_focused || status_appearance.background.is_some() {
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: Rectangle {
+                            x: bounds.x - f32::from(self.button_padding[0]) + indent_padding,
+                            width: bounds.width + f32::from(self.button_padding[0])
+                                - f32::from(self.button_padding[2])
+                                - indent_padding,
+                            ..bounds
+                        },
+                        border: if key_is_focused {
+                            Border {
+                                width: 1.0,
+                                color: appearance.active.text_color,
+                                radius: button_appearance.border.radius,
+                            }
+                        } else {
+                            button_appearance.border
+                        },
+                        shadow: Shadow::default(),
+                    },
+                    status_appearance
+                        .background
+                        .unwrap_or(Background::Color(Color::TRANSPARENT)),
+                );
             }
 
             // Align contents of the button to the requested `button_alignment`.
@@ -1455,7 +1496,7 @@ where
                     style,
                     cursor,
                     viewport,
-                    apply_alpha(status_appearance.text_color),
+                    status_appearance.text_color,
                     Rectangle {
                         width,
                         height: width,
@@ -1470,7 +1511,7 @@ where
                 if key_is_active {
                     if let crate::theme::SegmentedButton::Control = self.style {
                         let mut image_bounds = bounds;
-                        image_bounds.y = center_y - 16.0 / 2.0;
+                        image_bounds.y = center_y - 8.0;
 
                         draw_icon::<Message>(
                             renderer,
@@ -1478,7 +1519,7 @@ where
                             style,
                             cursor,
                             viewport,
-                            apply_alpha(status_appearance.text_color),
+                            status_appearance.text_color,
                             Rectangle {
                                 width: 16.0,
                                 height: 16.0,
@@ -1527,7 +1568,7 @@ where
                 renderer.fill_paragraph(
                     state.paragraphs[key].raw(),
                     bounds.position(),
-                    apply_alpha(status_appearance.text_color),
+                    status_appearance.text_color,
                     Rectangle {
                         x: bounds.x,
                         width: bounds.width,
@@ -1546,7 +1587,7 @@ where
                     style,
                     cursor,
                     viewport,
-                    apply_alpha(status_appearance.text_color),
+                    status_appearance.text_color,
                     close_button_bounds,
                     self.close_icon.clone(),
                 );
@@ -1664,6 +1705,12 @@ where
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Focus {
+    updated_at: Instant,
+    now: Instant,
+}
+
 /// State that is maintained by each individual widget.
 pub struct LocalState {
     /// Menu state
@@ -1674,8 +1721,10 @@ pub struct LocalState {
     pub(super) buttons_offset: usize,
     /// Whether buttons need to be collapsed to preserve minimum width
     pub(super) collapsed: bool,
+    /// Visibility of focus state
+    focused_visible: bool,
     /// If the widget is focused or not.
-    focused: bool,
+    focused: Option<Focus>,
     /// The key inside the widget that is currently focused.
     focused_item: Item,
     /// The ID of the button that is being hovered. Defaults to null.
@@ -1714,19 +1763,35 @@ enum Item {
     Tab(Entity),
 }
 
+impl LocalState {
+    fn set_focused(&mut self) {
+        let now = Instant::now();
+        LAST_FOCUS_UPDATE.with(|x| x.set(now));
+
+        self.focused = Some(Focus {
+            updated_at: now,
+            now,
+        });
+    }
+}
+
 impl operation::Focusable for LocalState {
     fn is_focused(&self) -> bool {
-        self.focused
+        self.focused.map_or(false, |f| {
+            f.updated_at == LAST_FOCUS_UPDATE.with(|f| f.get())
+        })
     }
 
     fn focus(&mut self) {
-        self.focused = true;
+        self.set_focused();
+        self.focused_visible = true;
         self.focused_item = Item::Set;
     }
 
     fn unfocus(&mut self) {
-        self.focused = false;
+        self.focused = None;
         self.focused_item = Item::None;
+        self.focused_visible = false;
         self.show_context = None;
     }
 }
@@ -1834,6 +1899,22 @@ fn right_button_released(event: &Event) -> bool {
     matches!(
         event,
         Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right,))
+    )
+}
+
+fn is_pressed(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+            | Event::Touch(touch::Event::FingerPressed { .. })
+    )
+}
+
+fn is_lifted(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left,))
+            | Event::Touch(touch::Event::FingerLifted { .. })
     )
 }
 

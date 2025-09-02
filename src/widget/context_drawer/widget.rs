@@ -55,7 +55,26 @@ impl<'a, Message: Clone + 'static> ContextDrawer<'a, Message> {
                 ..
             } = crate::theme::spacing();
 
-            let horizontal_padding = if max_width < 392.0 { space_s } else { space_l };
+            let (horizontal_padding, title_portion, side_portion) = if max_width < 392.0 {
+                (space_s, 1, 1)
+            } else {
+                (space_l, 2, 1)
+            };
+
+            let title = title.map(|title| {
+                text::heading(title)
+                    .width(Length::FillPortion(title_portion))
+                    .center()
+            });
+
+            let (actions_width, close_width) = if title.is_some() {
+                (
+                    Length::FillPortion(side_portion),
+                    Length::FillPortion(side_portion),
+                )
+            } else {
+                (Length::Fill, Length::Shrink)
+            };
 
             let header_row = row::with_capacity(3)
                 .width(Length::Fixed(480.0))
@@ -63,17 +82,15 @@ impl<'a, Message: Clone + 'static> ContextDrawer<'a, Message> {
                 .push(
                     row::with_children(header_actions)
                         .spacing(space_xxs)
-                        .width(Length::FillPortion(1)),
+                        .width(actions_width),
                 )
-                .push_maybe(
-                    title.map(|title| text::heading(title).width(Length::FillPortion(1)).center()),
-                )
+                .push_maybe(title)
                 .push(
                     button::text("Close")
                         .trailing_icon(icon::from_name("go-next-symbolic"))
                         .on_press(on_close)
                         .apply(container)
-                        .width(Length::FillPortion(1))
+                        .width(close_width)
                         .align_x(Alignment::End),
                 );
             let header = column::with_capacity(2)
