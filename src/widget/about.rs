@@ -1,6 +1,6 @@
 use {
     crate::{
-        Element,
+        Element, fl,
         iced::{Alignment, Length},
         widget::{self, horizontal_space},
     },
@@ -25,6 +25,8 @@ pub struct About {
     copyright: Option<String>,
     /// The license name.
     license: Option<String>,
+    /// The license url. If None spdx.org url is used.
+    license_url: Option<String>,
     /// Artists who contributed to the application.
     #[setters(skip)]
     artists: Vec<(String, String)>,
@@ -95,10 +97,12 @@ impl<'a> About {
         self
     }
 
-    fn license_url(&self) -> Option<String> {
-        self.license.as_ref().and_then(|license_str| {
-            let license: &dyn License = license_str.parse().ok()?;
-            Some(format!("https://spdx.org/licenses/{}.html", license.id()))
+    fn get_license_url(&self) -> Option<String> {
+        self.license_url.clone().or_else(|| {
+            self.license.as_ref().and_then(|license_str| {
+                let license: &dyn License = license_str.parse().ok()?;
+                Some(format!("https://spdx.org/licenses/{}.html", license.id()))
+            })
         })
     }
 }
@@ -112,7 +116,7 @@ pub fn about<'a, Message: Clone + 'static>(
         space_xxs, space_m, ..
     } = crate::theme::spacing();
 
-    let section = |list: &'a Vec<(String, String)>, title: &'a str| {
+    let section = |list: &'a Vec<(String, String)>, title: String| {
         (!list.is_empty()).then_some({
             let items: Vec<Element<Message>> =
                 list.iter()
@@ -146,15 +150,15 @@ pub fn about<'a, Message: Clone + 'static>(
     });
     let author = about.author.as_ref().map(widget::text::body);
     let version = about.version.as_ref().map(widget::button::standard);
-    let links_section = section(&about.links, "Links");
-    let developers_section = section(&about.developers, "Developers");
-    let designers_section = section(&about.designers, "Designers");
-    let artists_section = section(&about.artists, "Artists");
-    let translators_section = section(&about.translators, "Translators");
-    let documenters_section = section(&about.documenters, "Documenters");
+    let links_section = section(&about.links, fl!("links"));
+    let developers_section = section(&about.developers, fl!("developers"));
+    let designers_section = section(&about.designers, fl!("designers"));
+    let artists_section = section(&about.artists, fl!("artists"));
+    let translators_section = section(&about.translators, fl!("translators"));
+    let documenters_section = section(&about.documenters, fl!("documenters"));
     let license = about.license.as_ref().map(|license| {
-        let url = about.license_url();
-        widget::settings::section().title("License").add(
+        let url = about.get_license_url();
+        widget::settings::section().title(fl!("license")).add(
             widget::button::custom(
                 widget::row()
                     .push(widget::text(license))
