@@ -43,6 +43,7 @@ pub struct Icon {
     #[setters(skip)]
     handle: Handle,
     class: crate::theme::Svg,
+    #[setters(skip)]
     pub(super) size: u16,
     content_fit: ContentFit,
     #[setters(strip_option)]
@@ -70,6 +71,18 @@ impl Icon {
         }
 
         None
+    }
+
+    #[must_use]
+    pub fn size(mut self, size: u16) -> Self {
+        self.size = size;
+        // ensures correct icon size variant selection
+        if let Data::Name(named) = &self.handle.data {
+            let mut new_named = named.clone();
+            new_named.size = Some(size);
+            self.handle = new_named.handle();
+        }
+        self
     }
 
     #[must_use]
