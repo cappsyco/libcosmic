@@ -61,9 +61,14 @@ pub fn load_applications<'a>(
         .filter_map(move |p| fde::DesktopEntry::from_path(p, Some(locales)).ok())
         .filter(move |de| {
             (include_no_display || !de.no_display())
-                && !only_show_in.zip(de.only_show_in()).is_some_and(
+                && only_show_in.zip(de.only_show_in()).is_none_or(
                     |(xdg_current_desktop, only_show_in)| {
-                        !only_show_in.contains(&xdg_current_desktop)
+                        only_show_in.contains(&xdg_current_desktop)
+                    },
+                )
+                && only_show_in.zip(de.not_show_in()).is_none_or(
+                    |(xdg_current_desktop, not_show_in)| {
+                        !not_show_in.contains(&xdg_current_desktop)
                     },
                 )
         })
@@ -91,6 +96,11 @@ pub fn load_applications_for_app_ids<'a>(
             }
             if only_show_in.zip(de.only_show_in()).is_some_and(
                 |(xdg_current_desktop, only_show_in)| !only_show_in.contains(&xdg_current_desktop),
+            ) {
+                return false;
+            }
+            if only_show_in.zip(de.not_show_in()).is_some_and(
+                |(xdg_current_desktop, not_show_in)| not_show_in.contains(&xdg_current_desktop),
             ) {
                 return false;
             }
@@ -136,7 +146,7 @@ pub fn load_applications_for_app_ids<'a>(
 }
 
 #[cfg(not(windows))]
-pub fn load_desktop_file<'a>(locales: &'a [String], path: PathBuf) -> Option<DesktopEntryData> {
+pub fn load_desktop_file(locales: &[String], path: PathBuf) -> Option<DesktopEntryData> {
     fde::DesktopEntry::from_path(path, Some(locales))
         .ok()
         .map(|de| DesktopEntryData::from_desktop_entry(locales, de))
@@ -144,10 +154,7 @@ pub fn load_desktop_file<'a>(locales: &'a [String], path: PathBuf) -> Option<Des
 
 #[cfg(not(windows))]
 impl DesktopEntryData {
-    pub fn from_desktop_entry<'a>(
-        locales: &'a [String],
-        de: fde::DesktopEntry,
-    ) -> DesktopEntryData {
+    pub fn from_desktop_entry(locales: &[String], de: fde::DesktopEntry) -> DesktopEntryData {
         let name = de
             .name(locales)
             .unwrap_or(Cow::Borrowed(&de.appid))

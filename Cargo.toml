@@ -12,7 +12,7 @@ default = ["dbus-config", "multi-window", "a11y"]
 # Accessibility support
 a11y = ["iced/a11y", "iced_accessibility"]
 # Enable about widget
-about = ["dep:license"]
+about = []
 # Builds support for animated images
 animated-image = ["dep:async-fs", "image/gif", "tokio?/io-util", "tokio?/fs"]
 # XXX autosize should not be used on winit windows unless dialogs
@@ -103,7 +103,7 @@ ashpd = { version = "0.12.0", default-features = false, optional = true }
 async-fs = { version = "2.1", optional = true }
 async-std = { version = "1.13", optional = true }
 auto_enums = "0.8.7"
-cctk = { git = "https://github.com/pop-os/cosmic-protocols", package = "cosmic-client-toolkit", rev = "6254f50", optional = true }
+cctk = { git = "https://github.com/pop-os/cosmic-protocols", package = "cosmic-client-toolkit", rev = "d0e95be", optional = true }
 chrono = "0.4.42"
 cosmic-config = { path = "cosmic-config" }
 cosmic-settings-config = { git = "https://github.com/pop-os/cosmic-settings-daemon", optional = true }
@@ -122,7 +122,6 @@ image = { version = "0.25.8", default-features = false, features = [
     "png",
 ] }
 libc = { version = "0.2.175", optional = true }
-license = { version = "3.7.0", optional = true }
 mime = { version = "0.3.17", optional = true }
 palette = "0.7.6"
 raw-window-handle = "0.6"
@@ -134,6 +133,7 @@ serde = { version = "1.0.219", features = ["derive"] }
 slotmap = "1.0.7"
 smol = { version = "2.0.2", optional = true }
 thiserror = "2.0.16"
+taffy = { version = "0.9.1", features = ["grid"] }
 tokio = { version = "1.47.1", optional = true }
 tracing = "0.1.41"
 unicode-segmentation = "1.12"
@@ -206,11 +206,6 @@ optional = true
 version = "0.11"
 optional = true
 
-[dependencies.taffy]
-git = "https://github.com/DioxusLabs/taffy"
-rev = "7781c70"
-features = ["grid"]
-
 [workspace]
 members = [
     "cosmic-config",
@@ -230,5 +225,5 @@ libcosmic = { path = "./" }
 # FIXME update winit deps where necessary to use this
 # [patch.crates-io]
 # [patch."https://github.com/pop-os/winit.git"]
-# winit = { git = "https://github.com/rust-windowing/winit.git", rev = "241b7a80bba96c91fa3901729cd5dec66abb9be4" }
-# winit = { path = "../../winit" }
+# winit = { git = "https://github.com/pop-os/winit.git//", branch = "xdg-toplevel" }
+# winit = { path = "../winit" }

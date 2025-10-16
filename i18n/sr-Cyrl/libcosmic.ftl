@@ -1,11 +1,10 @@
 # Context Drawer
 close = Затвори
-
 # About
 license = Лиценца
 links = Линкови
-Developers = Програмери
-Designers = Дизајнери
-Artists = Уметници
-Translators = Преводиоци
-Documenters = Документатори
+developers = Програмер
+designers = Дизајнери
+artists = Уметници
+translators = Преводиоци
+documenters = Произвођачи документације
