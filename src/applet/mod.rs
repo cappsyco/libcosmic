@@ -181,9 +181,7 @@ impl Context {
 
     #[allow(clippy::cast_precision_loss)]
     pub fn window_settings(&self) -> crate::app::Settings {
-        // PATCH: force full size for symbolic icons
-        // let (width, height) = self.suggested_size(false);
-        let (width, height) = self.suggested_size(false);
+        let (width, height) = self.suggested_size(true);
         let (applet_padding_major_axis, applet_padding_minor_axis) = self.suggested_padding(true);
         let (horizontal_padding, vertical_padding) = if self.is_horizontal() {
             (applet_padding_major_axis, applet_padding_minor_axis)
@@ -216,7 +214,8 @@ impl Context {
         &self,
         icon: widget::icon::Handle,
     ) -> crate::widget::Button<'a, Message> {
-        let suggested = self.suggested_size(icon.symbolic);
+        //let suggested = self.suggested_size(icon.symbolic);
+        let suggested = self.suggested_size(false);
         let (applet_padding_major_axis, applet_padding_minor_axis) = self.suggested_padding(true);
         let (horizontal_padding, vertical_padding) = if self.is_horizontal() {
             (applet_padding_major_axis, applet_padding_minor_axis)
