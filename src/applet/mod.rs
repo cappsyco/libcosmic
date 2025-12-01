@@ -216,7 +216,8 @@ impl Context {
     ) -> crate::widget::Button<'a, Message> {
         //let suggested = self.suggested_size(icon.symbolic);
         let suggested = self.suggested_size(false);
-        let (applet_padding_major_axis, applet_padding_minor_axis) = self.suggested_padding(true);
+        //let (applet_padding_major_axis, applet_padding_minor_axis) = self.suggested_padding(true);
+        let (applet_padding_major_axis, applet_padding_minor_axis) = self.suggested_padding(false);
         let (horizontal_padding, vertical_padding) = if self.is_horizontal() {
             (applet_padding_major_axis, applet_padding_minor_axis)
         } else {
