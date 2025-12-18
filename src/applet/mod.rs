@@ -240,7 +240,8 @@ impl Context {
         content: impl Into<Element<'a, Message>>,
         use_symbolic_size: bool,
     ) -> crate::widget::Button<'a, Message> {
-        let suggested = self.suggested_size(use_symbolic_size);
+        //let suggested = self.suggested_size(use_symbolic_size);
+        let suggested = self.suggested_size(false);
         let (applet_padding_major_axis, applet_padding_minor_axis) = self.suggested_padding(true);
         let (horizontal_padding, vertical_padding) = if self.is_horizontal() {
             (applet_padding_major_axis, applet_padding_minor_axis)
