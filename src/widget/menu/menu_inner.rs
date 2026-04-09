@@ -7,6 +7,7 @@ use super::{menu_bar::MenuBarState, menu_tree::MenuTree};
 #[cfg(all(
     feature = "multi-window",
     feature = "wayland",
+    target_os = "linux",
     feature = "winit",
     feature = "surface-message"
 ))]
@@ -680,6 +681,7 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                             #[cfg(all(
                                 feature = "multi-window",
                                 feature = "wayland",
+                                target_os = "linux",
                                 feature = "winit",
                                 feature = "surface-message"
                             ))]
@@ -765,7 +767,13 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                             PathHighlight::OmitActive => {
                                 !indices.is_empty() && i < indices.len() - 1
                             }
-                            PathHighlight::MenuActive => self.depth == state.active_root.len() - 1,
+                            PathHighlight::MenuActive => {
+                                !indices.is_empty()
+                                    && i < indices.len()
+                                    && menu_roots.len() > indices[i]
+                                    && (i < indices.len() - 1
+                                        || !menu_roots[indices[i]].children.is_empty())
+                            }
                         });
 
                         // react only to the last menu
@@ -960,7 +968,8 @@ impl<Message: std::clone::Clone + 'static> Widget<Message, crate::Theme, crate::
             feature = "multi-window",
             feature = "wayland",
             feature = "winit",
-            feature = "surface-message"
+            feature = "surface-message",
+            target_os = "linux"
         ))]
         if matches!(WINDOWING_SYSTEM.get(), Some(WindowingSystem::Wayland))
             && let Some((new_root, new_ms)) = new_root
@@ -1220,6 +1229,7 @@ pub(crate) fn init_root_menu<Message: Clone>(
 #[cfg(all(
     feature = "multi-window",
     feature = "wayland",
+    target_os = "linux",
     feature = "winit",
     feature = "surface-message"
 ))]
@@ -1517,7 +1527,7 @@ where
             .as_ref()
             .is_some_and(|i| *i != new_index && !active_menu[*i].children.is_empty());
 
-        #[cfg(all(feature = "multi-window", feature = "wayland", feature = "winit", feature = "surface-message"))]
+        #[cfg(all(feature = "multi-window", feature = "wayland",target_os = "linux", feature = "winit", feature = "surface-message"))]
         if matches!(WINDOWING_SYSTEM.get(), Some(WindowingSystem::Wayland)) && remove {
             if let Some(id) = state.popup_id.remove(&menu.window_id) {
                 state.active_root.truncate(menu.depth + 1);

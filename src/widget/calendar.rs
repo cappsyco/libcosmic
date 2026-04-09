@@ -4,10 +4,10 @@
 //! A widget that displays an interactive calendar.
 
 use crate::fl;
-use crate::iced_core::{Alignment, Length};
 use crate::widget::{button, column, grid, icon, row, text};
 use apply::Apply;
 use iced::alignment::Vertical;
+use iced_core::{Alignment, Length};
 use jiff::{
     ToSpan,
     civil::{Date, Weekday},
@@ -212,7 +212,7 @@ where
 
         let content_list = column::with_children([
             row::with_children([
-                column().push(date).push(day).into(),
+                column([date.into(), day.into()]).into(),
                 crate::widget::space::horizontal()
                     .width(Length::Fill)
                     .into(),

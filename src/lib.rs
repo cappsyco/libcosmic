@@ -3,6 +3,7 @@
 
 #![allow(clippy::module_name_repetitions)]
 #![cfg_attr(target_os = "redox", feature(lazy_cell))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 /// Recommended default imports.
 pub mod prelude {
@@ -66,29 +67,6 @@ pub mod font;
 #[doc(inline)]
 pub use iced;
 
-#[doc(inline)]
-pub use iced_core;
-
-#[doc(inline)]
-pub use iced_futures;
-
-#[doc(inline)]
-pub use iced_renderer;
-
-#[doc(inline)]
-pub use iced_runtime;
-
-#[doc(inline)]
-pub use iced_widget;
-
-#[doc(inline)]
-#[cfg(feature = "winit")]
-pub use iced_winit;
-
-#[doc(inline)]
-#[cfg(feature = "wgpu")]
-pub use iced_wgpu;
-
 pub mod icon_theme;
 pub mod keyboard_nav;
 
@@ -100,7 +78,8 @@ pub(crate) mod malloc;
 #[cfg(all(feature = "process", not(windows)))]
 pub mod process;
 
-#[cfg(feature = "wayland")]
+#[doc(inline)]
+#[cfg(all(feature = "wayland", target_os = "linux"))]
 pub use cctk;
 
 pub mod surface;

@@ -54,7 +54,7 @@ impl widget::menu::Action for Action {
 /// Runs application with these settings
 #[rustfmt::skip]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    
+
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
 
@@ -82,6 +82,7 @@ pub enum Message {
     Hi,
     Hi2,
     Hi3,
+    Tick,
 }
 
 /// The [`App`] stores application-specific state.
@@ -92,6 +93,7 @@ pub struct App {
     input_2: String,
     hidden: bool,
     keybinds: HashMap<KeyBind, Action>,
+    progress: f32,
 }
 
 /// Implement [`cosmic::Application`] to integrate with COSMIC.
@@ -133,6 +135,7 @@ impl cosmic::Application for App {
             input_2: String::new(),
             hidden: true,
             keybinds: HashMap::new(),
+            progress: 0.0,
         };
 
         let command = app.update_title();
@@ -178,8 +181,15 @@ impl cosmic::Application for App {
             Message::Hi3 => {
                 dbg!("hi 3");
             }
+            Message::Tick => {
+                self.progress = (self.progress + 0.01) % 1.0;
+            }
         }
         Task::none()
+    }
+
+    fn subscription(&self) -> iced::Subscription<Self::Message> {
+        iced::time::every(std::time::Duration::from_millis(64)).map(|_| Message::Tick)
     }
 
     /// Creates a view after each update.
@@ -190,7 +200,7 @@ impl cosmic::Application for App {
             .map_or("No page selected", String::as_str);
 
         let centered = widget::container(
-            widget::column()
+            widget::column::with_capacity(5)
                 .push(widget::text::body(page_content))
                 .push(
                     widget::text_input::text_input("", &self.input_1)
@@ -211,6 +221,46 @@ impl cosmic::Application for App {
                     widget::text_input::search_input("", &self.input_2)
                         .on_input(Message::Input2)
                         .on_clear(Message::Ignore),
+                )
+                .push(widget::progress_bar::circular::Circular::new().size(50.0))
+                .push(
+                    widget::progress_bar::linear::Linear::new()
+                        .girth(10.0)
+                        .width(Length::Fill),
+                )
+                .push(
+                    widget::progress_bar::circular::Circular::new()
+                        .bar_height(10.0)
+                        .size(50.0)
+                        .progress(self.progress),
+                )
+                .push(
+                    widget::progress_bar::linear::Linear::new()
+                        .girth(10.0)
+                        .progress(self.progress)
+                        .width(Length::Fill),
+                )
+                .push(
+                    widget::progress_bar::circular::Circular::new()
+                        .size(50.0)
+                        .progress(0.0),
+                )
+                .push(
+                    widget::progress_bar::linear::Linear::new()
+                        .girth(10.0)
+                        .progress(0.0)
+                        .width(Length::Fill),
+                )
+                .push(
+                    widget::progress_bar::circular::Circular::new()
+                        .size(50.0)
+                        .progress(1.0),
+                )
+                .push(
+                    widget::progress_bar::linear::Linear::new()
+                        .girth(10.0)
+                        .progress(1.0)
+                        .width(Length::Fill),
                 )
                 .spacing(cosmic::theme::spacing().space_s)
                 .width(Length::Fill)

@@ -3,7 +3,6 @@
 
 use super::model::{Entity, Model, Selectable};
 use super::{InsertPosition, ReorderEvent};
-use crate::iced_core::id::Internal;
 use crate::theme::{SegmentedButton as Style, THEME};
 use crate::widget::dnd_destination::DragId;
 use crate::widget::menu::{
@@ -22,6 +21,7 @@ use iced::{
     Alignment, Background, Color, Event, Length, Padding, Rectangle, Size, Task, Vector, alignment,
     keyboard, mouse, touch, window,
 };
+use iced_core::id::Internal;
 use iced_core::mouse::ScrollDelta;
 use iced_core::text::{self, Ellipsize, LineHeight, Renderer as TextRenderer, Shaping, Wrapping};
 use iced_core::widget::operation::Focusable;
@@ -156,6 +156,8 @@ where
     pub(super) spacing: u16,
     /// LineHeight of the font.
     pub(super) line_height: LineHeight,
+    /// Ellipsize strategy for button text.
+    pub(super) ellipsize: Ellipsize,
     /// Style to draw the widget in.
     #[setters(into)]
     pub(super) style: Style,
@@ -216,13 +218,14 @@ where
             maximum_button_width: u16::MAX,
             indent_spacing: 16,
             font_active: crate::font::semibold(),
-            font_hovered: crate::font::semibold(),
+            font_hovered: crate::font::default(),
             font_inactive: crate::font::default(),
             font_size: 14.0,
             height: Length::Shrink,
             width: Length::Fill,
             spacing: 0,
             line_height: LineHeight::default(),
+            ellipsize: Ellipsize::default(),
             style: Style::default(),
             context_menu: None,
             on_activate: None,
@@ -243,12 +246,13 @@ where
 
     fn update_entity_paragraph(&mut self, state: &mut LocalState, key: Entity) {
         if let Some(text) = self.model.text.get(key) {
-            let font = if self.button_is_focused(state, key) {
+            let font = if self.button_is_focused(state, key)
+                || state.show_context == Some(key)
+                || self.model.is_active(key)
+            {
                 self.font_active
-            } else if state.show_context == Some(key) || self.button_is_hovered(state, key) {
+            } else if self.button_is_hovered(state, key) {
                 self.font_hovered
-            } else if self.model.is_active(key) {
-                self.font_active
             } else {
                 self.font_inactive
             };
@@ -258,10 +262,10 @@ where
             font.hash(&mut hasher);
             let text_hash = hasher.finish();
 
-            if let Some(prev_hash) = state.text_hashes.insert(key, text_hash) {
-                if prev_hash == text_hash {
-                    return;
-                }
+            if let Some(prev_hash) = state.text_hashes.insert(key, text_hash)
+                && prev_hash == text_hash
+            {
+                return;
             }
 
             if let Some(paragraph) = state.paragraphs.get_mut(key) {
@@ -275,7 +279,7 @@ where
                     shaping: Shaping::Advanced,
                     wrapping: Wrapping::None,
                     line_height: self.line_height,
-                    ellipsize: Ellipsize::default(),
+                    ellipsize: self.ellipsize,
                 };
                 paragraph.update(text);
             } else {
@@ -289,7 +293,7 @@ where
                     shaping: Shaping::Advanced,
                     wrapping: Wrapping::None,
                     line_height: self.line_height,
-                    ellipsize: Ellipsize::default(),
+                    ellipsize: self.ellipsize,
                 };
                 state.paragraphs.insert(key, crate::Plain::new(text));
             }
@@ -302,7 +306,7 @@ where
     {
         self.context_menu = context_menu.map(|menus| {
             vec![menu::Tree::with_children(
-                crate::Element::from(crate::widget::row::<'static, Message>()),
+                crate::Element::from(crate::widget::Row::new()),
                 menus,
             )]
         });
@@ -621,7 +625,7 @@ where
                     align_y: alignment::Vertical::Center,
                     shaping: Shaping::Advanced,
                     wrapping: Wrapping::default(),
-                    ellipsize: Ellipsize::default(),
+                    ellipsize: self.ellipsize,
                     line_height: self.line_height,
                 })
             });
@@ -655,6 +659,50 @@ where
         width = width.min(f32::from(self.maximum_button_width));
 
         (width, f32::from(self.button_height))
+    }
+
+    /// Resizes paragraph bounds based on the actual available button width so that
+    /// text ellipsis can take effect. Call this after `variant_layout` has populated
+    /// `state.internal_layout` with final button sizes.
+    pub(super) fn resize_paragraphs(&self, state: &mut LocalState, available_width: f32) {
+        if matches!(self.ellipsize, Ellipsize::None) {
+            return;
+        }
+
+        for (nth, key) in self.model.order.iter().copied().enumerate() {
+            if self.model.text(key).is_some_and(|text| !text.is_empty()) {
+                let mut non_text_width =
+                    f32::from(self.button_padding[0]) + f32::from(self.button_padding[2]);
+
+                if let Some(icon) = self.model.icon(key) {
+                    non_text_width += f32::from(icon.size) + f32::from(self.button_spacing);
+                } else if self.model.is_active(key) {
+                    if let crate::theme::SegmentedButton::Control = self.style {
+                        non_text_width += 16.0 + f32::from(self.button_spacing);
+                    }
+                }
+
+                if self.model.is_closable(key) {
+                    non_text_width +=
+                        f32::from(self.close_icon.size) + f32::from(self.button_spacing);
+                }
+
+                let text_width = (available_width - non_text_width).max(0.0);
+
+                if let Some(paragraph) = state.paragraphs.get_mut(key) {
+                    paragraph.resize(Size::new(text_width, f32::INFINITY));
+
+                    // Update internal_layout actual content width so that
+                    // button_alignment centering uses the ellipsized size.
+                    let content_width = paragraph.min_bounds().width + non_text_width
+                        - f32::from(self.button_padding[0])
+                        - f32::from(self.button_padding[2]);
+                    if let Some(entry) = state.internal_layout.get_mut(nth) {
+                        entry.1.width = content_width;
+                    }
+                }
+            }
+        }
     }
 
     pub(super) fn max_button_dimensions(
@@ -880,7 +928,6 @@ where
 
     fn diff(&mut self, tree: &mut Tree) {
         let state = tree.state.downcast_mut::<LocalState>();
-
         for key in self.model.order.iter().copied() {
             self.update_entity_paragraph(state, key);
         }
@@ -1434,7 +1481,7 @@ where
                 }
             }
         } else {
-            if let Item::Tab(key) = std::mem::replace(&mut state.hovered, Item::None) {
+            if let Item::Tab(_key) = std::mem::replace(&mut state.hovered, Item::None) {
                 for key in self.model.order.iter().copied() {
                     self.update_entity_paragraph(state, key);
                 }
@@ -1938,7 +1985,9 @@ where
 
             // Align contents of the button to the requested `button_alignment`.
             {
-                let actual_width = state.internal_layout[nth].1.width;
+                // Avoid shifting content outside the left edge when the measured content is
+                // wider than the available button bounds (for example, non-ellipsized text).
+                let actual_width = state.internal_layout[nth].1.width.min(bounds.width);
 
                 let offset = match self.button_alignment {
                     Alignment::Start => None,
@@ -1994,10 +2043,10 @@ where
                             ..image_bounds
                         },
                         crate::widget::icon(match crate::widget::common::object_select().data() {
-                            crate::iced_core::svg::Data::Bytes(bytes) => {
+                            iced_core::svg::Data::Bytes(bytes) => {
                                 crate::widget::icon::from_svg_bytes(bytes.as_ref()).symbolic(true)
                             }
-                            crate::iced_core::svg::Data::Path(path) => {
+                            iced_core::svg::Data::Path(path) => {
                                 crate::widget::icon::from_path(path.clone())
                             }
                         }),
@@ -2090,7 +2139,7 @@ where
         tree: &'b mut Tree,
         layout: iced_core::Layout<'b>,
         _renderer: &Renderer,
-        viewport: &iced_core::Rectangle,
+        _viewport: &iced_core::Rectangle,
         translation: Vector,
     ) -> Option<iced_core::overlay::Element<'b, Message, crate::Theme, Renderer>> {
         let state = tree.state.downcast_mut::<LocalState>();
