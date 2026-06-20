@@ -4,7 +4,8 @@ use cosmic::iced::core::window;
 use cosmic::iced::window::Id;
 use cosmic::iced::{Length, Rectangle};
 use cosmic::surface::action::{app_popup, destroy_popup};
-use cosmic::widget::{dropdown::popup_dropdown, list_column, settings, toggler};
+use cosmic::widget::dropdown::popup_dropdown;
+use cosmic::widget::{list_column, settings, toggler};
 use cosmic::Element;
 
 const ID: &str = "com.system76.CosmicAppletExample";
@@ -122,8 +123,6 @@ impl cosmic::Application for Window {
                         },
                         Some(Box::new(move |state: &Window| {
                             let content_list = list_column()
-                                .padding(5)
-                                .spacing(0)
                                 .add(settings::item(
                                     "Example row",
                                     cosmic::widget::container(

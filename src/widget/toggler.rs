@@ -3,15 +3,14 @@
 use std::time::{Duration, Instant};
 
 use crate::{Element, anim};
+use iced_core::renderer::{self, Renderer};
+use iced_core::widget::{self, Tree, tree};
 use iced_core::{
     Border, Clipboard, Event, Layout, Length, Pixels, Rectangle, Shell, Size, Widget, alignment,
-    event, layout, mouse,
-    renderer::{self, Renderer},
-    text, touch,
-    widget::{self, Tree, tree},
-    window,
+    event, layout, mouse, text, touch, window,
 };
-use iced_widget::{Id, toggler::Status};
+use iced_widget::Id;
+use iced_widget::toggler::Status;
 
 pub use iced_widget::toggler::{Catalog, Style};
 
@@ -161,7 +160,10 @@ impl<'a, Message> Widget<Message, crate::Theme, crate::Renderer> for Toggler<'a,
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(State::default())
+        tree::State::new(State {
+            prev_toggled: self.is_toggled,
+            ..State::default()
+        })
     }
 
     fn id(&self) -> Option<Id> {
@@ -238,6 +240,14 @@ impl<'a, Message> Widget<Message, crate::Theme, crate::Renderer> for Toggler<'a,
             return;
         };
         let state = tree.state.downcast_mut::<State>();
+
+        // animate external changes
+        if state.prev_toggled != self.is_toggled {
+            state.anim.changed(self.duration);
+            shell.request_redraw();
+            state.prev_toggled = self.is_toggled;
+        }
+
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
             | Event::Touch(touch::Event::FingerPressed { .. }) => {
@@ -246,6 +256,7 @@ impl<'a, Message> Widget<Message, crate::Theme, crate::Renderer> for Toggler<'a,
                 if mouse_over {
                     shell.publish((on_toggle)(!self.is_toggled));
                     state.anim.changed(self.duration);
+                    state.prev_toggled = !self.is_toggled;
                     shell.capture_event();
                 }
             }
@@ -430,4 +441,5 @@ pub fn next_to_each_other(
 pub struct State {
     text: widget::text::State<<crate::Renderer as iced_core::text::Renderer>::Paragraph>,
     anim: anim::State,
+    prev_toggled: bool,
 }

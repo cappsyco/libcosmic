@@ -1,18 +1,14 @@
 //! Show a linear progress indicator.
-use iced::advanced::layout;
-use iced::advanced::renderer::{self, Quad};
-use iced::advanced::widget::tree::{self, Tree};
-use iced::advanced::{self, Clipboard, Layout, Shell, Widget};
-use iced::mouse;
-use iced::time::Instant;
-use iced::window;
-use iced::{Background, Element, Event, Length, Rectangle, Size};
-
-use crate::anim::smootherstep;
-
+use super::animation::{Animation, Progress};
 use super::style::StyleSheet;
+use iced::advanced::widget::tree::{self, Tree};
+use iced::advanced::{self, Clipboard, Layout, Shell, Widget, layout, renderer};
+use iced::{Element, Event, Length, Pixels, Rectangle, Size, mouse, window};
 
 use std::time::Duration;
+
+const MIN_LENGTH: f32 = 0.15;
+const WRAP_LENGTH: f32 = 0.618; // avoids animation repetition
 
 #[must_use]
 pub struct Linear<Theme>
@@ -23,7 +19,10 @@ where
     girth: Length,
     style: Theme::Style,
     cycle_duration: Duration,
+    period: Duration,
     progress: Option<f32>,
+    markers: Vec<f32>,
+    segment_spacing: f32,
 }
 
 impl<Theme> Linear<Theme>
@@ -37,7 +36,10 @@ where
             girth: Length::Fixed(4.0),
             style: Theme::Style::default(),
             cycle_duration: Duration::from_millis(1500),
+            period: Duration::from_secs(2),
             progress: None,
+            markers: Vec::new(),
+            segment_spacing: 1.0,
         }
     }
 
@@ -65,9 +67,36 @@ where
         self
     }
 
+    /// Sets the base period of this [`Linear`]. This is the duration that a full traversal
+    /// would take if the cycle duration were set to 0.0 (no expanding or contracting)
+    pub fn period(mut self, duration: Duration) -> Self {
+        self.period = duration;
+        self
+    }
+
     /// Override the default behavior by providing a determinate progress value between `0.0` and `1.0`.
     pub fn progress(mut self, progress: f32) -> Self {
         self.progress = Some(progress.clamp(0.0, 1.0));
+        self
+    }
+
+    /// Sets the markers of a determinate progress bar, which divide the bar into segments.
+    /// Each marker is a value between `0.0` and `1.0` that defines the position of a visual gap.
+    pub fn markers(mut self, markers: impl Into<Vec<f32>>) -> Self {
+        let mut markers = markers.into();
+        for marker in &mut markers {
+            *marker = marker.clamp(0.0, 1.0);
+        }
+        markers.sort_by(f32::total_cmp);
+        markers.dedup();
+
+        self.markers = markers;
+        self
+    }
+
+    /// Sets the spacing between segments at each marker.
+    pub fn segment_spacing(mut self, spacing: impl Into<Pixels>) -> Self {
+        self.segment_spacing = spacing.into().0.max(1.0);
         self
     }
 }
@@ -81,63 +110,10 @@ where
     }
 }
 
-#[derive(Clone, Copy)]
-enum State {
-    Expanding { start: Instant, progress: f32 },
-    Contracting { start: Instant, progress: f32 },
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self::Expanding {
-            start: Instant::now(),
-            progress: 0.0,
-        }
-    }
-}
-
-impl State {
-    fn next(&self, now: Instant) -> Self {
-        match self {
-            Self::Expanding { .. } => Self::Contracting {
-                start: now,
-                progress: 0.0,
-            },
-            Self::Contracting { .. } => Self::Expanding {
-                start: now,
-                progress: 0.0,
-            },
-        }
-    }
-
-    fn start(&self) -> Instant {
-        match self {
-            Self::Expanding { start, .. } | Self::Contracting { start, .. } => *start,
-        }
-    }
-
-    fn timed_transition(&self, cycle_duration: Duration, now: Instant) -> Self {
-        let elapsed = now.duration_since(self.start());
-
-        match elapsed {
-            elapsed if elapsed > cycle_duration => self.next(now),
-            _ => self.with_elapsed(cycle_duration, elapsed),
-        }
-    }
-
-    fn with_elapsed(&self, cycle_duration: Duration, elapsed: Duration) -> Self {
-        let progress = elapsed.as_secs_f32() / cycle_duration.as_secs_f32();
-        match self {
-            Self::Expanding { start, .. } => Self::Expanding {
-                start: *start,
-                progress,
-            },
-            Self::Contracting { start, .. } => Self::Contracting {
-                start: *start,
-                progress,
-            },
-        }
-    }
+#[derive(Default)]
+struct State {
+    animation: Animation,
+    progress: Progress,
 }
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer> for Linear<Theme>
@@ -181,19 +157,25 @@ where
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
-        if self.progress.is_some() {
-            return;
-        }
-
         let state = tree.state.downcast_mut::<State>();
-
         if let Event::Window(window::Event::RedrawRequested(now)) = event {
-            *state = state.timed_transition(self.cycle_duration, *now);
-
-            shell.request_redraw();
+            if let Some(target) = self.progress {
+                if state.progress.update(target, *now) {
+                    shell.request_redraw();
+                }
+            } else {
+                state.animation = state.animation.timed_transition(
+                    self.cycle_duration,
+                    self.period,
+                    WRAP_LENGTH,
+                    *now,
+                );
+                shell.request_redraw();
+            }
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn draw(
         &self,
         tree: &Tree,
@@ -208,88 +190,168 @@ where
         let custom_style = theme.appearance(&self.style, self.progress.is_some(), false);
         let state = tree.state.downcast_ref::<State>();
 
-        renderer.fill_quad(
-            renderer::Quad {
-                bounds: Rectangle {
-                    x: bounds.x,
-                    y: bounds.y,
-                    width: bounds.width,
-                    height: bounds.height,
-                },
-                border: iced::Border {
-                    width: if custom_style.border_color.is_some() {
-                        1.0
-                    } else {
-                        0.0
-                    },
-                    color: custom_style.border_color.unwrap_or(custom_style.bar_color),
-                    radius: custom_style.border_radius.into(),
-                },
-                snap: true,
-                ..renderer::Quad::default()
-            },
-            Background::Color(custom_style.track_color),
-        );
+        let border_width = if custom_style.border_color.is_some() {
+            1.0
+        } else {
+            0.0
+        };
+        let border_color = custom_style.border_color.unwrap_or(custom_style.bar_color);
+        let radius = custom_style.border_radius;
 
-        if let Some(progress) = self.progress {
+        let draw_quad = |renderer: &mut Renderer,
+                         x: f32,
+                         width: f32,
+                         color: iced::Color,
+                         border: iced::Border| {
             renderer.fill_quad(
                 renderer::Quad {
                     bounds: Rectangle {
-                        x: bounds.x,
+                        x: bounds.x + x,
                         y: bounds.y,
-                        width: progress * bounds.width,
+                        width,
                         height: bounds.height,
                     },
-                    border: iced::Border {
-                        width: 0.,
-                        color: iced::Color::TRANSPARENT,
-                        radius: custom_style.border_radius.into(),
-                    },
+                    border,
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                Background::Color(custom_style.bar_color),
+                color,
             );
-        } else {
-            match state {
-                State::Expanding { progress, .. } => renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: Rectangle {
-                            x: bounds.x,
-                            y: bounds.y,
-                            width: smootherstep(*progress) * bounds.width,
-                            height: bounds.height,
-                        },
-                        border: iced::Border {
-                            width: 0.,
-                            color: iced::Color::TRANSPARENT,
-                            radius: custom_style.border_radius.into(),
-                        },
-                        snap: true,
-                        ..renderer::Quad::default()
-                    },
-                    Background::Color(custom_style.bar_color),
-                ),
+        };
 
-                State::Contracting { progress, .. } => renderer.fill_quad(
-                    Quad {
-                        bounds: Rectangle {
-                            x: bounds.x + smootherstep(*progress) * bounds.width,
+        // determinate progress bar
+        if self.progress.is_some() {
+            let current_p = state.progress.current;
+            let len = self.markers.len();
+            let spacing = self.segment_spacing;
+            let radius_inner = radius.min(spacing);
+
+            let gap = if len != 0 {
+                spacing / bounds.width
+            } else {
+                0.0
+            };
+            let drawable = 1.0 - gap * len as f32;
+
+            for i in 0..=len {
+                let (seg_lo, r_left) = if i == 0 {
+                    (0.0, radius)
+                } else {
+                    (self.markers[i - 1], radius_inner)
+                };
+                let (seg_hi, r_right) = if i == len {
+                    (1.0, radius)
+                } else {
+                    (self.markers[i], radius_inner)
+                };
+                let x_start = seg_lo * drawable + i as f32 * gap;
+                let x_width = (seg_hi - seg_lo) * drawable;
+                let segment_radius = [r_left, r_right, r_right, r_left].into();
+
+                let fill = ((current_p - seg_lo) / (seg_hi - seg_lo)).min(1.0);
+                let border = iced::Border {
+                    width: border_width,
+                    color: border_color,
+                    radius: segment_radius,
+                };
+
+                // empty segment
+                if current_p < seg_lo {
+                    draw_quad(
+                        renderer,
+                        x_start * bounds.width,
+                        x_width * bounds.width,
+                        custom_style.track_color,
+                        border,
+                    );
+                }
+                // filled segment
+                else if current_p > seg_hi {
+                    draw_quad(
+                        renderer,
+                        x_start * bounds.width,
+                        x_width * bounds.width,
+                        custom_style.bar_color,
+                        border,
+                    );
+                }
+                // partially filled segment
+                else {
+                    draw_quad(
+                        renderer,
+                        x_start * bounds.width,
+                        x_width * bounds.width,
+                        custom_style.track_color,
+                        border,
+                    );
+
+                    renderer.with_layer(
+                        Rectangle {
+                            x: bounds.x + x_start * bounds.width,
                             y: bounds.y,
-                            width: (1.0 - smootherstep(*progress)) * bounds.width,
+                            width: x_width * bounds.width * fill,
                             height: bounds.height,
                         },
-                        border: iced::Border {
-                            width: 0.,
-                            color: iced::Color::TRANSPARENT,
-                            radius: custom_style.border_radius.into(),
+                        |renderer| {
+                            draw_quad(
+                                renderer,
+                                x_start * bounds.width,
+                                x_width * bounds.width,
+                                custom_style.bar_color,
+                                border,
+                            );
                         },
-                        snap: true,
-                        ..renderer::Quad::default()
-                    },
-                    Background::Color(custom_style.bar_color),
-                ),
+                    );
+                }
             }
+        }
+        // indeterminate progress bar
+        else {
+            let (bar_start, bar_end) =
+                state
+                    .animation
+                    .bar_positions(self.cycle_duration, MIN_LENGTH, WRAP_LENGTH);
+            let length = bar_end - bar_start;
+            let start = bar_start % 1.0;
+            let right_width = (1.0 - start).min(length);
+            let left_width = length - right_width;
+            let border = iced::Border {
+                width: border_width,
+                color: border_color,
+                radius: radius.into(),
+            };
+
+            draw_quad(
+                renderer,
+                0.0,
+                bounds.width,
+                custom_style.track_color,
+                border,
+            );
+
+            renderer.with_layer(
+                Rectangle {
+                    x: bounds.x,
+                    y: bounds.y,
+                    width: left_width * bounds.width,
+                    height: bounds.height,
+                },
+                |renderer| {
+                    draw_quad(renderer, 0.0, bounds.width, custom_style.bar_color, border);
+                },
+            );
+
+            renderer.with_layer(
+                Rectangle {
+                    x: bounds.x + start * bounds.width,
+                    y: bounds.y,
+                    width: right_width * bounds.width,
+                    height: bounds.height,
+                },
+                |renderer| {
+                    draw_quad(renderer, 0.0, bounds.width, custom_style.bar_color, border);
+                },
+            );
         }
     }
 }

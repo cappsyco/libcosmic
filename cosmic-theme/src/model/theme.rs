@@ -1,13 +1,13 @@
+use crate::composite::over;
+use crate::steps::{color_index, get_small_widget_color, get_surface_color, get_text, steps};
 use crate::{
     Component, Container, CornerRadii, CosmicPalette, CosmicPaletteInner, DARK_PALETTE,
     LIGHT_PALETTE, NAME, Spacing, ThemeMode,
-    composite::over,
-    steps::{color_index, get_small_widget_color, get_surface_color, get_text, steps},
 };
 use cosmic_config::{Config, CosmicConfigEntry};
-use palette::{
-    IntoColor, Oklcha, Srgb, Srgba, WithAlpha, color_difference::Wcag21RelativeContrast, rgb::Rgb,
-};
+use palette::color_difference::Wcag21RelativeContrast;
+use palette::rgb::Rgb;
+use palette::{IntoColor, Oklcha, Srgb, Srgba, WithAlpha};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
 
@@ -75,6 +75,8 @@ pub struct Theme {
     pub icon_button: Component,
     /// link button element colors
     pub link_button: Component,
+    /// list button element colors
+    pub list_button: Component,
     /// text button element colors
     pub text_button: Component,
     /// button component styling
@@ -1285,6 +1287,15 @@ impl ThemeBuilder {
                 component.on_disabled = over(component.on.with_alpha(0.5), component.base);
                 component
             },
+            list_button: Component::component(
+                Srgba::new(0.0, 0.0, 0.0, 0.0),
+                accent,
+                on_bg_component,
+                Srgba::new(0.0, 0.0, 0.0, 0.0),
+                button_pressed_overlay,
+                is_high_contrast,
+                control_steps_array[8],
+            ),
             success: Component::colored_component(
                 success,
                 control_steps_array[0],

@@ -22,11 +22,11 @@ use crate::prelude::*;
 use crate::theme::THEME;
 use crate::widget::{container, id_container, menu, nav_bar, popover, space};
 use apply::Apply;
-use iced::{Length, Subscription};
-use iced::{theme, window};
+use iced::{Length, Subscription, theme, window};
 pub use settings::Settings;
 use std::borrow::Cow;
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[cold]
 pub(crate) fn iced_settings<App: Application>(
@@ -128,6 +128,9 @@ impl<A: crate::app::Application> BootFn<cosmic::Cosmic<A>, crate::Action<A::Mess
 ///
 /// Returns error on application failure.
 pub fn run<App: Application>(settings: Settings, flags: App::Flags) -> iced::Result {
+    #[cfg(feature = "desktop")]
+    image_extras::register();
+
     #[cfg(all(target_env = "gnu", not(target_os = "windows")))]
     if let Some(threshold) = settings.default_mmap_threshold {
         crate::malloc::limit_mmap_threshold(threshold);
@@ -194,6 +197,9 @@ where
     App::Flags: CosmicFlags,
     App::Message: Clone + std::fmt::Debug + Send + 'static,
 {
+    #[cfg(feature = "desktop")]
+    image_extras::register();
+
     use std::collections::HashMap;
 
     let activation_token = std::env::var("XDG_ACTIVATION_TOKEN").ok();
@@ -767,7 +773,6 @@ impl<App: Application> ApplicationExt for App {
                         .focused(focused)
                         .maximized(maximized)
                         .sharp_corners(sharp_corners)
-                        .transparent(content_container)
                         .title(&core.window.header_title)
                         .on_drag(crate::Action::Cosmic(Action::Drag))
                         .on_right_click(crate::Action::Cosmic(Action::ShowWindowMenu))

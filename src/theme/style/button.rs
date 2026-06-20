@@ -6,10 +6,8 @@
 use cosmic_theme::Component;
 use iced_core::{Background, Color};
 
-use crate::{
-    theme::TRANSPARENT_COMPONENT,
-    widget::button::{Catalog, Style},
-};
+use crate::theme::TRANSPARENT_COMPONENT;
+use crate::widget::button::{Catalog, Style};
 
 #[derive(Default)]
 pub enum Button {
@@ -27,7 +25,7 @@ pub enum Button {
     IconVertical,
     Image,
     Link,
-    ListItem,
+    ListItem([f32; 4]),
     MenuFolder,
     MenuItem,
     MenuRoot,
@@ -148,9 +146,9 @@ pub fn appearance(
             appearance.text_color = Some(component.on.into());
             corner_radii = &cosmic.corner_radii.radius_s;
         }
-        Button::ListItem => {
-            corner_radii = &[0.0; 4];
-            let (background, text, icon) = color(&cosmic.background.component);
+        Button::ListItem(radii) => {
+            corner_radii = radii;
+            let (background, text, icon) = color(&cosmic.list_button);
 
             if selected {
                 appearance.background =

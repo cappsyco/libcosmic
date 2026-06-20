@@ -7,12 +7,8 @@
 pub mod portal;
 pub mod style;
 
-use cosmic_config::CosmicConfigEntry;
-use cosmic_config::config_subscription;
-use cosmic_theme::Component;
-use cosmic_theme::LayeredTheme;
-use cosmic_theme::Spacing;
-use cosmic_theme::ThemeMode;
+use cosmic_config::{CosmicConfigEntry, config_subscription};
+use cosmic_theme::{Component, LayeredTheme, Spacing, ThemeMode};
 use iced_futures::Subscription;
 use iced_runtime::{Appearance, DefaultStyle};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -307,7 +303,7 @@ impl DefaultStyle for Theme {
     fn default_style(&self) -> Appearance {
         let cosmic = self.cosmic();
         Appearance {
-            icon_color: cosmic.bg_color().into(),
+            icon_color: cosmic.on_bg_color().into(),
             background_color: cosmic.bg_color().into(),
             text_color: cosmic.on_bg_color().into(),
         }

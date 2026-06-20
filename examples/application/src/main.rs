@@ -5,9 +5,10 @@
 
 use cosmic::app::Settings;
 use cosmic::iced::{Alignment, Length, Size};
+use cosmic::prelude::*;
 use cosmic::widget::menu::{self, KeyBind};
 use cosmic::widget::nav_bar;
-use cosmic::{executor, iced, prelude::*, widget, Core};
+use cosmic::{executor, iced, widget, Core};
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
@@ -200,7 +201,7 @@ impl cosmic::Application for App {
             .map_or("No page selected", String::as_str);
 
         let centered = widget::container(
-            widget::column::with_capacity(5)
+            widget::column::with_capacity(14)
                 .push(widget::text::body(page_content))
                 .push(
                     widget::text_input::text_input("", &self.input_1)
@@ -223,6 +224,7 @@ impl cosmic::Application for App {
                         .on_clear(Message::Ignore),
                 )
                 .push(widget::progress_bar::circular::Circular::new().size(50.0))
+                .push(widget::progress_bar::circular::Circular::new().size(20.0))
                 .push(
                     widget::progress_bar::linear::Linear::new()
                         .girth(10.0)
@@ -238,7 +240,9 @@ impl cosmic::Application for App {
                     widget::progress_bar::linear::Linear::new()
                         .girth(10.0)
                         .progress(self.progress)
-                        .width(Length::Fill),
+                        .width(Length::Fill)
+                        .markers([0.25, 0.5, 0.75])
+                        .segment_spacing(2),
                 )
                 .push(
                     widget::progress_bar::circular::Circular::new()
