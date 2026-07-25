@@ -7,30 +7,21 @@ const LAG: f32 = 0.1;
 #[derive(Default)]
 pub struct Progress {
     pub current: f32,
-    target: Option<f32>,
     last: Option<Instant>,
 }
 
 impl Progress {
-    /// Smoothly chases `target` using exponential decay.
+    /// Chases `target` using exponential decay.
     /// Returns `true` if a redraw should be requested.
     pub fn update(&mut self, target: f32, now: Instant) -> bool {
         // Don't animate on start
         let Some(last) = self.last else {
             self.current = target;
-            self.target = Some(target);
             self.last = Some(now);
             return false;
         };
 
-        // Sync animation clock when target changes
-        if self.target != Some(target) {
-            self.target = Some(target);
-            self.last = Some(now);
-            return true;
-        }
-
-        let dt = (now - last).as_secs_f32();
+        let dt = (now - last).as_secs_f32().min(1.0 / 60.0);
         self.last = Some(now);
         let diff = target - self.current;
 

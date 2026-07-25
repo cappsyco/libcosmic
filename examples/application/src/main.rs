@@ -7,7 +7,7 @@ use cosmic::app::Settings;
 use cosmic::iced::{Alignment, Length, Size};
 use cosmic::prelude::*;
 use cosmic::widget::menu::{self, KeyBind};
-use cosmic::widget::nav_bar;
+use cosmic::widget::{nav_bar, RcElementWrapper};
 use cosmic::{executor, iced, widget, Core};
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -43,12 +43,31 @@ pub enum Action {
 impl widget::menu::Action for Action {
     type Message = Message;
 
-    fn message(&self) -> Message {
+    fn message(&self) -> Self::Message {
         match self {
             Action::Hi => Message::Hi,
             Action::Hi2 => Message::Hi2,
             Action::Hi3 => Message::Hi3,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Action2 {
+    Hi,
+    Hi2,
+    Hi3,
+}
+
+impl widget::menu::Action for Action2 {
+    type Message = cosmic::Action<Message>;
+
+    fn message(&self) -> Self::Message {
+        cosmic::Action::App(match self {
+            Action2::Hi => Message::Hi,
+            Action2::Hi2 => Message::Hi2,
+            Action2::Hi3 => Message::Hi3,
+        })
     }
 }
 
@@ -84,6 +103,7 @@ pub enum Message {
     Hi2,
     Hi3,
     Tick,
+    ValueChanged(f32),
 }
 
 /// The [`App`] stores application-specific state.
@@ -95,6 +115,7 @@ pub struct App {
     hidden: bool,
     keybinds: HashMap<KeyBind, Action>,
     progress: f32,
+    progress_slider: f32,
 }
 
 /// Implement [`cosmic::Application`] to integrate with COSMIC.
@@ -137,6 +158,7 @@ impl cosmic::Application for App {
             hidden: true,
             keybinds: HashMap::new(),
             progress: 0.0,
+            progress_slider: 0.0,
         };
 
         let command = app.update_title();
@@ -153,6 +175,70 @@ impl cosmic::Application for App {
     fn on_nav_select(&mut self, id: nav_bar::Id) -> cosmic::app::Task<Self::Message> {
         self.nav_model.activate(id);
         self.update_title()
+    }
+
+    fn nav_context_menu(&self) -> Option<Vec<menu::Tree<cosmic::Action<Self::Message>>>> {
+        Some(menu::nav_context(
+            &HashMap::new(),
+            vec![
+                vec![cosmic::widget::menu::Item::Button(
+                    "Hi",
+                    Some(cosmic::widget::icon::from_name("screenshot-window-symbolic").into()),
+                    Action2::Hi,
+                )],
+                vec![
+                    cosmic::widget::menu::Item::Button(
+                        "Hi 2",
+                        Some(cosmic::widget::icon::from_name("screenshot-window-symbolic").into()),
+                        Action2::Hi,
+                    ),
+                    cosmic::widget::menu::Item::Button(
+                        "Hi 22",
+                        Some(cosmic::widget::icon::from_name("screenshot-window-symbolic").into()),
+                        Action2::Hi,
+                    ),
+                ],
+                vec![
+                    cosmic::widget::menu::Item::Button(
+                        "Hi 3",
+                        Some(cosmic::widget::icon::from_name("screenshot-window-symbolic").into()),
+                        Action2::Hi,
+                    ),
+                    cosmic::widget::menu::Item::Button(
+                        "Hi 33",
+                        Some(cosmic::widget::icon::from_name("screenshot-window-symbolic").into()),
+                        Action2::Hi,
+                    ),
+                    cosmic::widget::menu::Item::Button(
+                        "Hi 333",
+                        Some(cosmic::widget::icon::from_name("screenshot-window-symbolic").into()),
+                        Action2::Hi,
+                    ),
+                ],
+                vec![
+                    cosmic::widget::menu::Item::Button(
+                        "Hi 44",
+                        Some(cosmic::widget::icon::from_name("screenshot-window-symbolic").into()),
+                        Action2::Hi,
+                    ),
+                    cosmic::widget::menu::Item::Button(
+                        "Hi 4444",
+                        Some(cosmic::widget::icon::from_name("screenshot-window-symbolic").into()),
+                        Action2::Hi,
+                    ),
+                    cosmic::widget::menu::Item::Button(
+                        "Hi 444444",
+                        Some(cosmic::widget::icon::from_name("screenshot-window-symbolic").into()),
+                        Action2::Hi,
+                    ),
+                    cosmic::widget::menu::Item::Button(
+                        "Hi 444444444444",
+                        Some(cosmic::widget::icon::from_name("screenshot-window-symbolic").into()),
+                        Action2::Hi,
+                    ),
+                ],
+            ],
+        ))
     }
 
     /// Handle application events here.
@@ -185,6 +271,9 @@ impl cosmic::Application for App {
             Message::Tick => {
                 self.progress = (self.progress + 0.01) % 1.0;
             }
+            Message::ValueChanged(value) => {
+                self.progress_slider = value;
+            }
         }
         Task::none()
     }
@@ -201,7 +290,7 @@ impl cosmic::Application for App {
             .map_or("No page selected", String::as_str);
 
         let centered = widget::container(
-            widget::column::with_capacity(14)
+            widget::column::with_capacity(16)
                 .push(widget::text::body(page_content))
                 .push(
                     widget::text_input::text_input("", &self.input_1)
@@ -240,6 +329,16 @@ impl cosmic::Application for App {
                     widget::progress_bar::linear::Linear::new()
                         .girth(10.0)
                         .progress(self.progress)
+                        .width(Length::Fill),
+                )
+                .push(
+                    widget::slider(0.0..=1.0, self.progress_slider, Message::ValueChanged)
+                        .step(0.001),
+                )
+                .push(
+                    widget::progress_bar::linear::Linear::new()
+                        .girth(10.0)
+                        .progress(self.progress_slider)
                         .width(Length::Fill)
                         .markers([0.25, 0.5, 0.75])
                         .segment_spacing(2),
@@ -266,6 +365,7 @@ impl cosmic::Application for App {
                         .progress(1.0)
                         .width(Length::Fill),
                 )
+                .push(widget::button::suggested("asdf").on_press(Message::Ignore))
                 .spacing(cosmic::theme::spacing().space_s)
                 .width(Length::Fill)
                 .height(Length::Shrink)
