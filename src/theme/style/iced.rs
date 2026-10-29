@@ -485,21 +485,7 @@ impl iced_container::Catalog for Theme {
         let window_corner_radius = cosmic.radius_s().map(|x| if x < 4.0 { x } else { x + 4.0 });
 
         match class {
-            Container::Transparent => {
-                let component = &self.current_container().component;
-
-                iced_container::Style {
-                    icon_color: Some(component.on.into()),
-                    text_color: Some(component.on.into()),
-                    background: None,
-                    border: Border {
-                        radius: 0.into(),
-                        ..Default::default()
-                    },
-                    shadow: Shadow::default(),
-                    snap: true,
-                }
-            }
+            Container::Transparent => iced_container::Style::default(),
 
             Container::Custom(f) => f(self),
 
@@ -775,12 +761,12 @@ impl slider::Catalog for Theme {
 
                     handle: slider::Handle {
                         shape: slider::HandleShape::Rectangle {
-                            height: 20,
-                            width: 20,
+                            height: 26,
+                            width: 26,
                             border_radius: cosmic.corner_radii.radius_m.into(),
                         },
                         border_color: Color::TRANSPARENT,
-                        border_width: 0.0,
+                        border_width: 3.0,
                         background: Background::Color(cosmic.accent.base.into()),
                     },
 
@@ -795,12 +781,6 @@ impl slider::Catalog for Theme {
             slider::Status::Active => appearance,
             slider::Status::Hovered => match class {
                 Slider::Standard => {
-                    appearance.handle.shape = slider::HandleShape::Rectangle {
-                        height: 26,
-                        width: 26,
-                        border_radius: cosmic.corner_radii.radius_m.into(),
-                    };
-                    appearance.handle.border_width = 3.0;
                     appearance.handle.border_color =
                         self.cosmic().palette.neutral_10.with_alpha(0.1).into();
                     appearance
@@ -809,20 +789,9 @@ impl slider::Catalog for Theme {
             },
             slider::Status::Dragged => match class {
                 Slider::Standard => {
-                    let mut style = {
-                        appearance.handle.shape = slider::HandleShape::Rectangle {
-                            height: 26,
-                            width: 26,
-                            border_radius: cosmic.corner_radii.radius_m.into(),
-                        };
-                        appearance.handle.border_width = 3.0;
-                        appearance.handle.border_color =
-                            self.cosmic().palette.neutral_10.with_alpha(0.1).into();
-                        appearance
-                    };
-                    style.handle.border_color =
+                    appearance.handle.border_color =
                         self.cosmic().palette.neutral_10.with_alpha(0.2).into();
-                    style
+                    appearance
                 }
                 Slider::Custom { dragging, .. } => dragging(self),
             },
@@ -961,7 +930,11 @@ impl toggler::Catalog for Theme {
         let neutral_10 = cosmic.palette.neutral_10.with_alpha(0.1);
 
         let mut active = toggler::Style {
-            background: if matches!(status, toggler::Status::Active { is_toggled: true }) {
+            background: if matches!(
+                status,
+                toggler::Status::Active { is_toggled: true }
+                    | toggler::Status::Disabled { is_toggled: true }
+            ) {
                 cosmic.accent.base.into()
             } else if cosmic.is_dark {
                 cosmic.palette.neutral_6.into()
@@ -1387,18 +1360,23 @@ impl iced_widget::text::Catalog for Theme {
     }
 
     fn style(&self, class: &Self::Class<'_>) -> iced_widget::text::Style {
+        let selected_fill = self.cosmic().accent.base.into();
+        let selected_text_color = Some(self.cosmic().on_accent_color().into());
         match class {
             Text::Accent => iced_widget::text::Style {
                 color: Some(self.cosmic().accent_text_color().into()),
-                ..Default::default()
+                selected_fill,
+                selected_text_color,
             },
             Text::Default => iced_widget::text::Style {
                 color: None,
-                ..Default::default()
+                selected_fill,
+                selected_text_color,
             },
             Text::Color(c) => iced_widget::text::Style {
                 color: Some(*c),
-                ..Default::default()
+                selected_fill,
+                selected_text_color,
             },
             Text::Custom(f) => f(self),
         }
@@ -1542,6 +1520,12 @@ pub enum TextEditor<'a> {
     #[default]
     Default,
     Custom(text_editor::StyleFn<'a, Theme>),
+}
+
+impl<'a> From<text_editor::StyleFn<'a, Theme>> for TextEditor<'a> {
+    fn from(style: text_editor::StyleFn<'a, Theme>) -> Self {
+        Self::Custom(style)
+    }
 }
 
 impl iced_widget::text_editor::Catalog for Theme {

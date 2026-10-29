@@ -38,7 +38,7 @@ impl Default for ResponsiveMenuBar {
                 }
             },
             item_width: ItemWidth::Uniform(150),
-            item_height: ItemHeight::Uniform(30),
+            item_height: ItemHeight::Dynamic(40),
             spacing: 0.,
         }
     }
@@ -79,7 +79,11 @@ impl ResponsiveMenuBar {
         core: &Core,
         key_binds: &HashMap<menu::KeyBind, A>,
         id: crate::widget::Id,
-        action_message: impl Fn(crate::surface::Action) -> Message + Send + Sync + Clone + 'static,
+        action_message: impl Fn(crate::surface::Action<Message>) -> Message
+        + Send
+        + Sync
+        + Clone
+        + 'static,
         trees: Vec<(S, Vec<menu::Item<A, S>>)>,
     ) -> Element<'a, Message> {
         use crate::widget::id_container;

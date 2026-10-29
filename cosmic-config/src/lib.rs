@@ -4,7 +4,7 @@ use notify::event::{EventKind, ModifyKind, RenameMode};
 use notify::{RecommendedWatcher, Watcher};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::{env, fmt, fs};
@@ -48,23 +48,12 @@ fn get_state_dir() -> Option<PathBuf> {
             return Some(PathBuf::from(home).join(".local").join("state"));
         }
     }
-    dirs::state_dir()
-}
-
-/// Get the data directory, with Flatpak sandbox support.
-fn get_data_dir() -> Option<PathBuf> {
-    // Check if we're running in Flatpak
-    if env::var_os("FLATPAK_ID").is_some() {
-        // Try HOST_XDG_DATA_HOME first
-        if let Some(host_data) = env::var_os("HOST_XDG_DATA_HOME") {
-            return Some(PathBuf::from(host_data));
-        }
-        // Fallback: try to construct from HOME
-        if let Some(home) = env::var_os("HOME") {
-            return Some(PathBuf::from(home).join(".local").join("share"));
-        }
+    if let Some(state_dir) = dirs::state_dir() {
+        return Some(state_dir);
     }
-    dirs::data_dir()
+    // On platforms without state_dir, fall back to ~/.local/state
+    let home_dir = dirs::home_dir()?;
+    Some(home_dir.join(".local").join(".state"))
 }
 
 #[cfg(feature = "subscription")]
@@ -327,40 +316,6 @@ impl Config {
         })
     }
 
-    /// Get data for the given application name and config version.
-    ///     pub fn new_state(name: &str, version: u64) -> Result<Self, Error> {
-    pub fn new_data(name: &str, version: u64) -> Result<Self, Error> {
-        Self::new_data_inner(name, version, true)
-    }
-
-    pub fn new_data_inner(
-        name: &str,
-        version: u64,
-        look_for_previous: bool,
-    ) -> Result<Self, Error> {
-        // Look for [name]/v[version]
-        let path = sanitize_name(name)?.join(format!("v{}", version));
-
-        // Get libcosmic user data directory
-        let mut user_path = get_data_dir().ok_or(Error::NoConfigDirectory)?;
-        user_path.push("cosmic");
-        user_path.push(path);
-        // Create new data directory if not found.
-        fs::create_dir_all(&user_path)?;
-
-        Ok(Self {
-            system_path: None,
-            user_path: Some(user_path),
-            previous: if version > 1 && look_for_previous {
-                Self::new_data_inner(name, version - 1, false)
-                    .ok()
-                    .map(Box::new)
-            } else {
-                None
-            },
-        })
-    }
-
     // Start a transaction (to set multiple configs at the same time)
     #[inline]
     pub fn transaction(&self) -> ConfigTransaction<'_> {
@@ -462,10 +417,11 @@ impl ConfigGet for Config {
         match self.key_path(key) {
             Ok(key_path) if key_path.is_file() => {
                 // Load user override
-                let data = fs::read_to_string(key_path)
-                    .map_err(|err| Error::GetKey(key.to_string(), err))?;
-
-                Ok(ron::from_str(&data)?)
+                match fs::read_to_string(key_path) {
+                    Ok(data) => Ok(ron::from_str(&data)?),
+                    Err(why) if why.kind() == io::ErrorKind::NotFound => Err(Error::NotFound),
+                    Err(why) => Err(Error::GetKey(key.to_string(), why)),
+                }
             }
 
             _ => {
@@ -481,9 +437,11 @@ impl ConfigGet for Config {
     fn get_system_default<T: DeserializeOwned>(&self, key: &str) -> Result<T, Error> {
         // Load system default
         let default_path = self.default_path(key)?;
-        let data =
-            fs::read_to_string(default_path).map_err(|err| Error::GetKey(key.to_string(), err))?;
-        Ok(ron::from_str(&data)?)
+        match fs::read_to_string(default_path) {
+            Ok(data) => Ok(ron::from_str(&data)?),
+            Err(why) if why.kind() == io::ErrorKind::NotFound => Err(Error::NotFound),
+            Err(why) => Err(Error::GetKey(key.to_string(), why)),
+        }
     }
 }
 

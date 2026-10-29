@@ -296,7 +296,7 @@ impl Context {
         content: impl Into<Element<'a, Message>>,
         tooltip: impl Into<Cow<'static, str>>,
         has_popup: bool,
-        on_surface_action: impl Fn(crate::surface::Action) -> Message + 'static,
+        on_surface_action: impl Fn(crate::surface::Action<Message>) -> Message + 'static,
         parent_id: Option<window::Id>,
     ) -> crate::widget::wayland::tooltip::widget::Tooltip<'a, Message, Message> {
         let window_id = *TOOLTIP_WINDOW_ID;
@@ -535,6 +535,15 @@ impl Context {
 ///
 /// Returns error on application failure.
 pub fn run<App: Application>(flags: App::Flags) -> iced::Result {
+    if let Some(fd) = std::env::var("X_PRIVILEGED_WAYLAND_SOCKET")
+        .ok()
+        .and_then(|fd| fd.parse::<std::os::fd::RawFd>().ok())
+    {
+        let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) };
+        if let Ok(flags) = rustix::io::fcntl_getfd(fd) {
+            let _ = rustix::io::fcntl_setfd(fd, flags | rustix::io::FdFlags::CLOEXEC);
+        }
+    }
     let helper = Context::default();
 
     let mut settings = helper.window_settings();

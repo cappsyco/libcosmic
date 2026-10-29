@@ -55,7 +55,8 @@ where
     #[setters(strip_option)]
     font: Option<crate::font::Font>,
     #[setters(skip)]
-    on_surface_action: Option<Arc<dyn Fn(surface::Action) -> Message + Send + Sync + 'static>>,
+    on_surface_action:
+        Option<Arc<dyn Fn(surface::Action<AppMessage>) -> Message + Send + Sync + 'static>>,
     #[setters(skip)]
     action_map: Option<Arc<dyn Fn(Message) -> AppMessage + 'static + Send + Sync>>,
     #[setters(strip_option)]
@@ -109,7 +110,7 @@ where
     pub fn with_popup<NewAppMessage>(
         self,
         parent_id: window::Id,
-        on_surface_action: impl Fn(surface::Action) -> Message + Send + Sync + 'static,
+        on_surface_action: impl Fn(surface::Action<NewAppMessage>) -> Message + Send + Sync + 'static,
         action_map: impl Fn(Message) -> NewAppMessage + Send + Sync + 'static,
     ) -> Dropdown<'a, S, Message, NewAppMessage> {
         let Self {
@@ -552,7 +553,9 @@ pub fn update<
     selections: &[S],
     state: impl FnOnce() -> &'a mut State,
     _window_id: Option<window::Id>,
-    on_surface_action: Option<Arc<dyn Fn(surface::Action) -> Message + Send + Sync + 'static>>,
+    on_surface_action: Option<
+        Arc<dyn Fn(surface::Action<AppMessage>) -> Message + Send + Sync + 'static>,
+    >,
     action_map: Option<Arc<dyn Fn(Message) -> AppMessage + Send + Sync + 'static>>,
     icons: &[icon::Handle],
     gap: f32,
@@ -567,6 +570,7 @@ pub fn update<
                 state: &mut State,
                 on_selected: Arc<dyn Fn(usize) -> Message + Send + Sync + 'static>| {
         state.is_open.store(true, Ordering::Relaxed);
+        shell.request_redraw();
         let mut hovered_guard = state.hovered_option.lock().unwrap();
         *hovered_guard = selected;
         let id = window::Id::unique();
@@ -626,7 +630,7 @@ pub fn update<
                     ..Default::default()
                 },
                 parent_size: None,
-                grab: true,
+                grab: false,
                 close_with_children: true,
             }
                 },
@@ -661,6 +665,7 @@ pub fn update<
         state.close_operation = false;
         state.is_open.store(false, Ordering::SeqCst);
         if is_open {
+            shell.request_redraw();
             #[cfg(wayland_platform)]
             if let Some(ref on_close) = on_surface_action {
                 shell.publish(on_close(surface::action::destroy_popup(state.popup_id)));
@@ -684,6 +689,7 @@ pub fn update<
                 // Event wasn't processed by overlay, so cursor was clicked either outside it's
                 // bounds or on the drop-down, either way we close the overlay.
                 state.is_open.store(false, Ordering::Relaxed);
+                shell.request_redraw();
                 #[cfg(wayland_platform)]
                 if let Some(on_close) = on_surface_action {
                     shell.publish(on_close(surface::action::destroy_popup(state.popup_id)));
@@ -712,6 +718,22 @@ pub fn update<
         Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
             state.keyboard_modifiers = *modifiers;
         }
+        Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(keyboard::key::Named::Escape),
+            ..
+        }) => {
+            let is_open = state.is_open.load(Ordering::Relaxed);
+            if is_open {
+                state.is_open.store(false, Ordering::Relaxed);
+                shell.request_redraw();
+                #[cfg(wayland_platform)]
+                if let Some(on_close) = on_surface_action {
+                    shell.publish(on_close(surface::action::destroy_popup(state.popup_id)));
+                }
+                shell.capture_event();
+            }
+        }
+
         _ => {}
     }
 }

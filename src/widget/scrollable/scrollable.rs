@@ -2,30 +2,26 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use crate::{Element, Renderer};
-use iced::widget;
+use iced::widget::scrollable::{Direction, Scrollable, Scrollbar};
 
 pub fn scrollable<'a, Message>(
     element: impl Into<Element<'a, Message>>,
-) -> widget::Scrollable<'a, Message, crate::Theme, Renderer> {
+) -> Scrollable<'a, Message, crate::Theme, Renderer> {
     vertical(element)
 }
 
 pub fn vertical<'a, Message>(
     element: impl Into<Element<'a, Message>>,
-) -> widget::Scrollable<'a, Message, crate::Theme, Renderer> {
-    widget::scrollable(element)
-        .scroller_width(8.0)
-        .scrollbar_width(8.0)
-        .scrollbar_padding(8.0)
+) -> Scrollable<'a, Message, crate::Theme, Renderer> {
+    iced::widget::scrollable(element).direction(Direction::Vertical(
+        Scrollbar::new().width(8).scroller_width(8).padding(8),
+    ))
 }
 
 pub fn horizontal<'a, Message>(
     element: impl Into<Element<'a, Message>>,
-) -> widget::Scrollable<'a, Message, crate::Theme, Renderer> {
-    widget::scrollable(element)
-        .direction(widget::scrollable::Direction::Horizontal(
-            widget::scrollable::Scrollbar::new(),
-        ))
-        .scroller_width(8.0)
-        .scrollbar_width(8.0)
+) -> Scrollable<'a, Message, crate::Theme, Renderer> {
+    iced::widget::scrollable(element).direction(Direction::Horizontal(
+        Scrollbar::new().width(8).scroller_width(8),
+    ))
 }

@@ -237,7 +237,7 @@ pub(super) struct MenuSlice {
 #[derive(Debug, Clone)]
 /// Menu bounds in overlay space
 pub struct MenuBounds {
-    child_positions: Vec<f32>,
+    pub(crate) child_positions: Vec<f32>,
     child_sizes: Vec<Size>,
     children_bounds: Rectangle,
     pub parent_bounds: Rectangle,
@@ -455,7 +455,7 @@ pub(crate) struct Menu<'b, Message: std::clone::Clone> {
     pub(crate) window_id: window::Id,
     pub(crate) depth: usize,
     pub(crate) on_surface_action:
-        Option<Arc<dyn Fn(crate::surface::Action) -> Message + Send + Sync + 'static>>,
+        Option<Arc<dyn Fn(crate::surface::Action<Message>) -> Message + Send + Sync + 'static>>,
 }
 impl<'b, Message: Clone + 'static> Menu<'b, Message> {
     pub(crate) fn overlay(self) -> overlay::Element<'b, Message, crate::Theme, crate::Renderer> {
@@ -546,7 +546,48 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
         })
     }
 
+    /// Close every menu and, on Wayland, destroy the root popup this menu belongs to.
+    /// Used when clicking outside a menu.
     #[allow(clippy::too_many_lines)]
+    fn close_all(
+        &self,
+        state: &mut super::menu_bar::MenuBarStateInner,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        #[cfg(wayland_platform)]
+        if matches!(WINDOWING_SYSTEM.get(), Some(WindowingSystem::Wayland))
+            && let Some(handler) = self.on_surface_action.as_ref()
+        {
+            let mut root = self.window_id;
+            let mut depth = self.depth;
+            while let Some(parent) = state.popup_id.iter().find(|(_, v)| **v == root) {
+                if depth == 0 {
+                    break;
+                }
+                root = *parent.0;
+                depth = depth.saturating_sub(1);
+            }
+            shell.publish((handler)(crate::surface::Action::DestroyPopup(root)));
+        }
+
+        state.reset();
+    }
+
+    /// Close the innermost open menu, see [`close_innermost`].
+    /// Used when pressing `esc`.
+    fn close(
+        &self,
+        state: &mut super::menu_bar::MenuBarStateInner,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        let handler = self.on_surface_action.as_ref();
+        close_innermost(state, &mut |id| {
+            if let Some(handler) = handler {
+                shell.publish((handler)(crate::surface::Action::DestroyPopup(id)));
+            }
+        });
+    }
+
     fn update(
         &mut self,
         event: &event::Event,
@@ -601,6 +642,19 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
         );
 
         match event {
+            event::Event::Keyboard(iced_widget::core::keyboard::Event::KeyPressed {
+                key:
+                    iced_widget::core::keyboard::Key::Named(
+                        iced_widget::core::keyboard::key::Named::Escape,
+                    ),
+                ..
+            }) if !self.is_overlay => {
+                self.tree
+                    .inner
+                    .with_data_mut(|state| self.close(state, shell));
+                shell.capture_event();
+            }
+
             Mouse(WheelScrolled { delta }) => process_scroll_events(
                 self,
                 shell,
@@ -634,6 +688,10 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                     shell,
                 );
 
+                if view_cursor.is_over(viewport) {
+                    shell.request_redraw();
+                }
+
                 if self.is_overlay && view_cursor.is_over(viewport) {
                     shell.capture_event();
                 }
@@ -646,12 +704,13 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                     state.pressed = false;
 
                     // process close condition
-                    if state
-                        .view_cursor
-                        .position()
-                        .unwrap_or_default()
-                        .distance(view_cursor.position().unwrap_or_default())
-                        < 2.0
+                    if state.open
+                        && state
+                            .view_cursor
+                            .position()
+                            .unwrap_or_default()
+                            .distance(view_cursor.position().unwrap_or_default())
+                            < 2.0
                     {
                         let is_inside = state.menu_states[..=if self.is_overlay {
                             state.active_root.len().saturating_sub(1)
@@ -671,27 +730,7 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                         needs_reset |= self.close_condition.click_outside && !is_inside;
 
                         if needs_reset {
-                            #[cfg(wayland_platform)]
-                            if matches!(WINDOWING_SYSTEM.get(), Some(WindowingSystem::Wayland))
-                                && let Some(handler) = self.on_surface_action.as_ref()
-                            {
-                                let mut root = self.window_id;
-                                let mut depth = self.depth;
-                                while let Some(parent) =
-                                    state.popup_id.iter().find(|(_, v)| **v == root)
-                                {
-                                    // parent of root popup is the window, so we stop.
-                                    if depth == 0 {
-                                        break;
-                                    }
-                                    root = *parent.0;
-                                    depth = depth.saturating_sub(1);
-                                }
-                                shell
-                                    .publish((handler)(crate::surface::Action::DestroyPopup(root)));
-                            }
-
-                            state.reset();
+                            self.close_all(state, shell);
                         }
                     }
 
@@ -703,7 +742,7 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
             }
 
             _ => {}
-        };
+        }
         None
     }
 
@@ -811,11 +850,11 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                                 let rad_0 = theme.cosmic().radius_0();
                                 if start_index != end_index {
                                     if 0 == i {
-                                        rad[0] = rad_0[0];
-                                        rad[1] = rad_0[1];
+                                        rad[2] = rad_0[0];
+                                        rad[3] = rad_0[1];
                                     } else if i == end_index - start_index {
-                                        rad[2] = rad_0[2];
-                                        rad[3] = rad_0[3];
+                                        rad[0] = rad_0[2];
+                                        rad[1] = rad_0[3];
                                     } else {
                                         rad = rad_0;
                                     }
@@ -1424,47 +1463,48 @@ where
         state.view_cursor = view_cursor;
 
         // * remove invalid menus
+        if state.open {
+            let mut prev_bounds = std::iter::once(menu.bar_bounds)
+                .chain(
+                    if menu.is_overlay {
+                        state.menu_states[..state.menu_states.len().saturating_sub(1)].iter()
+                    } else {
+                        state.menu_states[..menu.depth].iter()
+                    }
+                    .map(|s| s.menu_bounds.children_bounds),
+                )
+                .collect::<Vec<_>>();
 
-        let mut prev_bounds = std::iter::once(menu.bar_bounds)
-            .chain(
-                if menu.is_overlay {
-                    state.menu_states[..state.menu_states.len().saturating_sub(1)].iter()
-                } else {
-                    state.menu_states[..menu.depth].iter()
+            if menu.is_overlay && menu.close_condition.leave {
+                for i in (0..state.menu_states.len()).rev() {
+                    let mb = &state.menu_states[i].menu_bounds;
+
+                    if mb.parent_bounds.contains(overlay_cursor)
+                        || menu.is_overlay && mb.children_bounds.contains(overlay_cursor)
+                        || mb.offset_bounds.contains(overlay_cursor)
+                        || (mb.check_bounds.contains(overlay_cursor)
+                            && prev_bounds.iter().all(|pvb| !pvb.contains(overlay_cursor)))
+                    {
+                        break;
+                    }
+                    prev_bounds.pop();
+                    state.active_root.pop();
+                    state.menu_states.pop();
                 }
-                .map(|s| s.menu_bounds.children_bounds),
-            )
-            .collect::<Vec<_>>();
+            } else if menu.is_overlay {
+                for i in (0..state.menu_states.len()).rev() {
+                    let mb = &state.menu_states[i].menu_bounds;
 
-        if menu.is_overlay && menu.close_condition.leave {
-            for i in (0..state.menu_states.len()).rev() {
-                let mb = &state.menu_states[i].menu_bounds;
-
-                if mb.parent_bounds.contains(overlay_cursor)
-                    || menu.is_overlay && mb.children_bounds.contains(overlay_cursor)
-                    || mb.offset_bounds.contains(overlay_cursor)
-                    || (mb.check_bounds.contains(overlay_cursor)
-                        && prev_bounds.iter().all(|pvb| !pvb.contains(overlay_cursor)))
-                {
-                    break;
+                    if mb.parent_bounds.contains(overlay_cursor)
+                        || mb.children_bounds.contains(overlay_cursor)
+                        || prev_bounds.iter().all(|pvb| !pvb.contains(overlay_cursor))
+                    {
+                        break;
+                    }
+                    prev_bounds.pop();
+                    state.active_root.pop();
+                    state.menu_states.pop();
                 }
-                prev_bounds.pop();
-                state.active_root.pop();
-                state.menu_states.pop();
-            }
-        } else if menu.is_overlay {
-            for i in (0..state.menu_states.len()).rev() {
-                let mb = &state.menu_states[i].menu_bounds;
-
-                if mb.parent_bounds.contains(overlay_cursor)
-                    || mb.children_bounds.contains(overlay_cursor)
-                    || prev_bounds.iter().all(|pvb| !pvb.contains(overlay_cursor))
-                {
-                    break;
-                }
-                prev_bounds.pop();
-                state.active_root.pop();
-                state.menu_states.pop();
             }
         }
 
@@ -1502,7 +1542,9 @@ where
         // cursor is outside
         {
 
-            last_menu_state.index = None;
+            if last_menu_state.index.take().is_some() {
+                shell.request_redraw();
+            }
             shell.capture_event();
             return new_menu_root;
         }
@@ -1560,6 +1602,10 @@ where
         let item = &active_menu[new_index];
         // set new index
         let old_index = last_menu_state.index.replace(new_index);
+
+        if old_index != Some(new_index) {
+            shell.request_redraw();
+        }
 
         // get new active item
         // * add new menu if the new item is a menu
@@ -1693,6 +1739,7 @@ fn process_scroll_events<Message>(
             }
         }
         shell.capture_event();
+        shell.request_redraw();
     });
 }
 
@@ -1767,6 +1814,45 @@ fn get_children_layout<Message>(
     let height = child_sizes.iter().fold(0.0, |acc, x| acc + x.height);
 
     (Size::new(width, height), child_positions, child_sizes)
+}
+
+/// Close the innermost open menu level
+pub(super) fn close_innermost(
+    state: &mut super::menu_bar::MenuBarStateInner,
+    destroy: &mut dyn FnMut(window::Id),
+) {
+    let outermost = state
+        .popup_id
+        .iter()
+        .find(|(parent, _)| !state.popup_id.values().any(|id| id == *parent))
+        .map(|(_, id)| *id);
+    let innermost = state
+        .popup_id
+        .values()
+        .find(|id| !state.popup_id.contains_key(id))
+        .copied();
+
+    let levels = state.menu_states.len();
+    if levels <= 1 {
+        if let Some(id) = outermost {
+            destroy(id);
+        }
+        state.popup_id.clear();
+        state.reset();
+        return;
+    }
+
+    state.active_root.truncate(levels - 1);
+    state.menu_states.truncate(levels - 1);
+
+    // Forget the parent's hovered item, so hovering it again reopens the submenu.
+    if let Some(parent) = state.menu_states.last_mut() {
+        parent.index = None;
+    }
+    if let Some(id) = innermost {
+        state.popup_id.retain(|_, popup| *popup != id);
+        destroy(id);
+    }
 }
 
 fn search_bound(
